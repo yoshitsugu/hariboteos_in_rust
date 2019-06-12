@@ -107,8 +107,8 @@ impl Screen {
 
         self.boxfill8(White, 3, ysize - 24, 59, ysize - 24);
         self.boxfill8(White, 2, ysize - 24, 2, ysize - 4);
-        self.boxfill8(DarkYellow, 3, ysize - 4, 59, ysize - 4);
-        self.boxfill8(DarkYellow, 59, ysize - 23, 59, ysize - 5);
+        self.boxfill8(DarkGray, 3, ysize - 4, 59, ysize - 4);
+        self.boxfill8(DarkGray, 59, ysize - 23, 59, ysize - 5);
         self.boxfill8(Black, 2, ysize - 3, 59, ysize - 3);
         self.boxfill8(Black, 60, ysize - 24, 60, ysize - 3);
 
