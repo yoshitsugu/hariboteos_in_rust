@@ -6,9 +6,6 @@ IMG := $(OUTPUT_DIR)/haribote.img
 default:
 	make img
 
-$(OUTPUT_DIR)/ipl.bin: $(ASM_DIR)/ipl.asm Makefile $(OUTPUT_DIR_KEEP)
-$(OUTPUT_DIR)/asmhead.bin: $(ASM_DIR)/asmhead.asm Makefile $(OUTPUT_DIR_KEEP)
-
 $(OUTPUT_DIR)/%.bin: $(ASM_DIR)/%.asm Makefile $(OUTPUT_DIR_KEEP)
 	nasm $< -o $@
 
@@ -20,7 +17,7 @@ $(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys Makefile
 	mcopy $(OUTPUT_DIR)/haribote.sys -i $@ ::
 
 asm :
-	make $(OUTPUT_DIR)/ipl.bin
+	make $(OUTPUT_DIR)/ipl.bin 
 
 img :
 	make $(IMG)
