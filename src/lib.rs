@@ -10,6 +10,12 @@ mod fonts;
 mod interrupt;
 mod vga;
 
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref COUNT: i32 = 3 + 3;
+}
+
 #[no_mangle]
 #[start]
 pub extern "C" fn haribote_os() {
@@ -25,7 +31,7 @@ pub extern "C" fn haribote_os() {
     screen.init();
     let mut writer = ScreenWriter::new(screen, vga::Color::White, 0, 0);
     use core::fmt::Write;
-    write!(writer, "ABC\n").unwrap();
+    write!(writer, "ABC\n{}", *COUNT).unwrap();
     loop {
         hlt()
     }
