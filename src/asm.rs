@@ -32,10 +32,27 @@ pub fn sti() {
     }
 }
 
+pub fn stihlt() {
+    unsafe {
+        asm!("STI
+              HLT" : : : : "intel");
+    }
+}
+
 pub fn out8(port: u32, data: u8) {
     unsafe {
         asm!("OUT DX,AL" : : "{EDX}"(port), "{AL}"(data) : : "intel");
     }
+}
+
+pub fn in8(port: u32) -> u8 {
+    let mut r: u8;
+    unsafe {
+        asm!("MOV EDX,$0" : : "i"(port) : : "intel");
+        asm!("MOV EAX,0" : : : : "intel");
+        asm!("IN AX,DX" : "={AX}"(r) : : : "intel");
+    }
+    r
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -60,6 +77,7 @@ pub fn load_idtr(limit: i32, adr: i32) {
 #[macro_export]
 macro_rules! handler {
     ($name: ident) => {{
+        #[naked]
         pub extern "C" fn wrapper() {
             unsafe {
                 asm!("PUSH ES
