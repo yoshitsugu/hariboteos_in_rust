@@ -50,7 +50,7 @@ pub fn in8(port: u32) -> u8 {
     unsafe {
         asm!("MOV EDX,$0" : : "i"(port) : : "intel");
         asm!("MOV EAX,0" : : : : "intel");
-        asm!("IN AX,DX" : "={AX}"(r) : : : "intel");
+        asm!("IN AL,DX" : "={AL}"(r) : : : "intel");
     }
     r
 }
