@@ -10,6 +10,7 @@ mod descriptor_table;
 mod fifo;
 mod fonts;
 mod interrupt;
+mod mouse;
 mod vga;
 
 #[no_mangle]
@@ -18,6 +19,7 @@ pub extern "C" fn haribote_os() {
     use asm::{cli, sti, stihlt};
     use core::fmt::Write;
     use interrupt::{enable_mouse, KEYBUF, MOUSEBUF};
+    use mouse::{Mouse, MouseDec, MOUSE_CURSOR_HEIGHT, MOUSE_CURSOR_WIDTH};
     use vga::{Color, Screen, ScreenWriter};
 
     descriptor_table::init();
@@ -26,6 +28,12 @@ pub extern "C" fn haribote_os() {
     interrupt::allow_input();
     let mut screen = Screen::new();
     screen.init();
+    let mouse_dec = MouseDec::new();
+    let mouse = Mouse::new(
+        (screen.scrnx as i32 - MOUSE_CURSOR_WIDTH as i32) / 2,
+        (screen.scrny as i32 - MOUSE_CURSOR_HEIGHT as i32 - 28) / 2,
+    );
+    mouse.render();
     enable_mouse();
     loop {
         cli();
@@ -38,9 +46,33 @@ pub extern "C" fn haribote_os() {
         } else if MOUSEBUF.lock().status() != 0 {
             let i = MOUSEBUF.lock().get().unwrap();
             sti();
-            (Screen::new()).boxfill8(Color::DarkCyan, 32, 0, 48, 16);
-            let mut writer = ScreenWriter::new(Screen::new(), vga::Color::White, 32, 0);
-            write!(writer, "{:x}", i).unwrap();
+            if mouse_dec.decode(i).is_some() {
+                (Screen::new()).boxfill8(Color::DarkCyan, 32, 0, 32 + 15 * 8 - 1, 16);
+                let mut writer = ScreenWriter::new(Screen::new(), vga::Color::White, 32, 0);
+                write!(
+                    writer,
+                    "[{}{}{} {:>4},{:>4}]",
+                    if (mouse_dec.btn.get() & 0x01) != 0 {
+                        'L'
+                    } else {
+                        'l'
+                    },
+                    if (mouse_dec.btn.get() & 0x04) != 0 {
+                        'C'
+                    } else {
+                        'c'
+                    },
+                    if (mouse_dec.btn.get() & 0x02) != 0 {
+                        'R'
+                    } else {
+                        'r'
+                    },
+                    mouse_dec.x.get(),
+                    mouse_dec.y.get(),
+                )
+                .unwrap();
+                mouse.move_and_render(mouse_dec.x.get(), mouse_dec.y.get());
+            }
         } else {
             stihlt();
         }

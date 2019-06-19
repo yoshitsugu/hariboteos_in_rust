@@ -49,11 +49,7 @@ pub struct Screen {
     pub scrnx: i16,
     pub scrny: i16,
     pub vram: &'static mut u8,
-    pub mouse: [[Color; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT],
 }
-
-const MOUSE_CURSOR_WIDTH: usize = 16;
-const MOUSE_CURSOR_HEIGHT: usize = 16;
 
 impl Screen {
     // See: asmhead.asm
@@ -65,21 +61,12 @@ impl Screen {
             scrnx: unsafe { *(0x0ff4 as *const i16) },
             scrny: unsafe { *(0x0ff6 as *const i16) },
             vram: unsafe { &mut *(*(0xff8 as *const i32) as *mut u8) },
-            mouse: [[Color::DarkCyan; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT],
         }
     }
 
     pub fn init(&mut self) {
         self.init_palette();
         self.init_screen();
-        self.init_mouse_cursor();
-        self.putblock(
-            self.mouse,
-            MOUSE_CURSOR_WIDTH as isize,
-            MOUSE_CURSOR_HEIGHT as isize,
-            (self.scrnx as isize - MOUSE_CURSOR_WIDTH as isize) / 2,
-            (self.scrny as isize - MOUSE_CURSOR_HEIGHT as isize - 28) / 2,
-        );
     }
 
     pub fn init_palette(&self) {
@@ -143,40 +130,9 @@ impl Screen {
         }
     }
 
-    fn init_mouse_cursor(&mut self) {
-        let cursor: [[u8; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT] = [
-            *b"**************..",
-            *b"*OOOOOOOOOOO*...",
-            *b"*OOOOOOOOOO*....",
-            *b"*OOOOOOOOO*.....",
-            *b"*OOOOOOOO*......",
-            *b"*OOOOOOO*.......",
-            *b"*OOOOOOO*.......",
-            *b"*OOOOOOOO*......",
-            *b"*OOOO**OOO*.....",
-            *b"*OOO*..*OOO*....",
-            *b"*OO*....*OOO*...",
-            *b"*O*......*OOO*..",
-            *b"**........*OOO*.",
-            *b"*..........*OOO*",
-            *b"............*OO*",
-            *b".............***",
-        ];
-
-        for y in 0..MOUSE_CURSOR_HEIGHT {
-            for x in 0..MOUSE_CURSOR_WIDTH {
-                match cursor[y][x] {
-                    b'*' => self.mouse[y][x] = Color::Black,
-                    b'O' => self.mouse[y][x] = Color::White,
-                    _ => (),
-                }
-            }
-        }
-    }
-
     // 本では画像としてレンダリングできるサイズ可変になっているが、Rustでのとりまわしが面倒だったので一旦16固定にしている。
     // const generics ( https://github.com/rust-lang/rfcs/blob/master/text/2000-const-generics.md )が使えれば解決しそう？
-    fn putblock(
+    pub fn putblock(
         &mut self,
         image: [[Color; 16]; 16],
         pxsize: isize,
