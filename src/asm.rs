@@ -20,6 +20,20 @@ pub fn store_eflags(flags: i32) {
     }
 }
 
+pub fn load_cr0() -> u32 {
+    let result: u32;
+    unsafe {
+        asm!("MOV EAX,CR0" : "={EAX}"(result) : : : "intel");
+    }
+    result
+}
+
+pub fn store_cr0(cr0: u32) {
+    unsafe {
+        asm!("MOV CR0,EAX" : : "{EAX}"(cr0) : : "intel");
+    }
+}
+
 pub fn cli() {
     unsafe {
         asm!("CLI" : : : : "intel");

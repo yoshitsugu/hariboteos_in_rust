@@ -10,6 +10,7 @@ mod descriptor_table;
 mod fifo;
 mod fonts;
 mod interrupt;
+mod memory;
 mod mouse;
 mod vga;
 
@@ -19,6 +20,7 @@ pub extern "C" fn haribote_os() {
     use asm::{cli, sti, stihlt};
     use core::fmt::Write;
     use interrupt::{enable_mouse, KEYBUF, MOUSEBUF};
+    use memory::{MemMan, MEMMAN_ADDR};
     use mouse::{Mouse, MouseDec, MOUSE_CURSOR_HEIGHT, MOUSE_CURSOR_WIDTH};
     use vga::{Color, Screen, ScreenWriter};
 
@@ -35,6 +37,21 @@ pub extern "C" fn haribote_os() {
     );
     mouse.render();
     enable_mouse();
+    let memtotal = memory::memtest(0x00400000, 0xbfffffff);
+    let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
+    *memman = MemMan::new();
+    memman.free(0x00001000, 0x0009e000).unwrap();
+    memman.free(0x00400000, 2).unwrap();
+    memman.free(0x00400000, memtotal - 0x00400000).unwrap();
+    (Screen::new()).boxfill8(Color::DarkCyan, 0, 32, 100, 48);
+    let mut writer = ScreenWriter::new(Screen::new(), vga::Color::White, 0, 32);
+    write!(
+        writer,
+        "total: {}MB  free: {}KB",
+        memtotal / (1024 * 1024),
+        memman.total() / 1024
+    )
+    .unwrap();
     loop {
         cli();
         if KEYBUF.lock().status() != 0 {

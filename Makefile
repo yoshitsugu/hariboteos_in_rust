@@ -24,7 +24,7 @@ img :
 
 run :
 	make img
-	qemu-system-i386 -fda $(IMG)
+	qemu-system-i386 -m 32 -fda $(IMG)
 
 debug :
 	make img
