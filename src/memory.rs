@@ -165,4 +165,14 @@ impl MemMan {
         self.lostsize += size;
         Err("CANNOT FREE MEMORY")
     }
+
+    pub fn alloc_4k(&mut self, size: u32) -> Result<u32, &'static str> {
+        let size = (size + 0xfff) & 0xfffff000;
+        self.alloc(size)
+    }
+
+    pub fn free_4k(&mut self, addr: u32, size: u32) -> Result<(), &'static str> {
+        let size = (size + 0xfff) & 0xfffff000;
+        self.free(addr, size)
+    }
 }
