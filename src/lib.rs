@@ -49,9 +49,9 @@ pub extern "C" fn haribote_os() {
     *sheet_manager = SheetManager::new();
     let shi_bg = sheet_manager.alloc().unwrap();
     let shi_mouse = sheet_manager.alloc().unwrap();
-    let scrnx = *SCREEN_WIDTH as u32;
-    let scrny = *SCREEN_HEIGHT as u32;
-    let buf_bg_addr = memman.alloc_4k(scrnx * scrny).unwrap() as usize;
+    let scrnx = *SCREEN_WIDTH as i32;
+    let scrny = *SCREEN_HEIGHT as i32;
+    let buf_bg_addr = memman.alloc_4k((scrnx * scrny) as u32).unwrap() as usize;
     let buf_mouse = [0u8; MOUSE_CURSOR_WIDTH * MOUSE_CURSOR_HEIGHT];
     let buf_mouse_addr =
         &buf_mouse as *const [u8; MOUSE_CURSOR_HEIGHT * MOUSE_CURSOR_WIDTH] as usize;
@@ -59,8 +59,8 @@ pub extern "C" fn haribote_os() {
     sheet_manager.set_buf(
         shi_mouse,
         buf_mouse_addr,
-        MOUSE_CURSOR_WIDTH as u32,
-        MOUSE_CURSOR_HEIGHT as u32,
+        MOUSE_CURSOR_WIDTH as i32,
+        MOUSE_CURSOR_HEIGHT as i32,
         Some(Color::DarkCyan),
     );
 
@@ -71,7 +71,7 @@ pub extern "C" fn haribote_os() {
     let mouse = Mouse::new(buf_mouse_addr);
     mouse.render();
 
-    sheet_manager.slide(shi_mouse, mx as u32, my as u32);
+    sheet_manager.slide(shi_mouse, mx, my);
     sheet_manager.updown(shi_bg, Some(0));
     sheet_manager.updown(shi_mouse, Some(1));
 
@@ -127,8 +127,6 @@ pub extern "C" fn haribote_os() {
                     shi_mouse,
                     mouse_dec.x.get(),
                     mouse_dec.y.get(),
-                    MOUSE_CURSOR_WIDTH as i32,
-                    MOUSE_CURSOR_HEIGHT as i32,
                 );
             }
         } else {

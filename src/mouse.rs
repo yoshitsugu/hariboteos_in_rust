@@ -1,4 +1,4 @@
-use crate::vga::{Color, putblock};
+use crate::vga::{putblock, Color};
 use core::cell::{Cell, RefCell};
 
 #[derive(Debug)]

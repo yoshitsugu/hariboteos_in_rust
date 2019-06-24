@@ -1,6 +1,6 @@
-use core::cmp::min;
+use core::cmp::{min, max};
 
-use crate::vga::{Color, VRAM_ADDR, SCREEN_HEIGHT, SCREEN_WIDTH};
+use crate::vga::{Color, SCREEN_HEIGHT, SCREEN_WIDTH, VRAM_ADDR};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SheetFlag {
@@ -11,10 +11,10 @@ pub enum SheetFlag {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sheet {
     pub buf_addr: usize,
-    pub width: u32,
-    pub height: u32,
-    pub x: u32,
-    pub y: u32,
+    pub width: i32,
+    pub height: i32,
+    pub x: i32,
+    pub y: i32,
     pub transparent: Option<Color>,
     pub z: Option<usize>, // 重ねあわせたときの高さ
     pub flag: SheetFlag,
@@ -34,7 +34,7 @@ impl Sheet {
         }
     }
 
-    pub fn set(&mut self, buf_addr: usize, width: u32, height: u32, transparent: Option<Color>) {
+    pub fn set(&mut self, buf_addr: usize, width: i32, height: i32, transparent: Option<Color>) {
         self.buf_addr = buf_addr;
         self.width = width;
         self.height = height;
@@ -63,8 +63,8 @@ impl SheetManager {
         &mut self,
         sheet_index: usize,
         buf_addr: usize,
-        width: u32,
-        height: u32,
+        width: i32,
+        height: i32,
         transparent: Option<Color>,
     ) {
         let sheet = &mut self.sheets_data[sheet_index];
@@ -83,10 +83,15 @@ impl SheetManager {
         None
     }
 
-    pub fn refresh_part(&self, x0: u32, y0: u32, x1: u32, y1: u32) {
+    pub fn refresh_part(&self, x0: i32, y0: i32, x1: i32, y1: i32) {
         if self.z_max.is_none() {
             return;
         }
+        let x0 = max(0, x0);
+        let y0 = max(0, y0);
+        let x1 = min(x1, *SCREEN_WIDTH as i32);
+        let y1 = min(y1, *SCREEN_HEIGHT as i32);
+
         for h in 0..=self.z_max.unwrap() {
             let sheet = &self.sheets_data[self.sheets[h as usize]];
             let bx0 = if x0 > sheet.x { x0 - sheet.x } else { 0 } as usize;
@@ -196,21 +201,21 @@ impl SheetManager {
         }
     }
 
-    pub fn refresh(&self, sheet_index: usize, x0: u32, y0: u32, x1: u32, y1: u32) {
+    pub fn refresh(&self, sheet_index: usize, x0: i32, y0: i32, x1: i32, y1: i32) {
         let sheet = self.sheets_data[sheet_index];
         if sheet.z.is_some() {
             self.refresh_part(sheet.x + x0, sheet.y + y0, sheet.x + x1, sheet.y + y1);
         }
     }
 
-    pub fn slide_by_diff(&mut self, sheet_index: usize, dx: i32, dy: i32, width: i32, height: i32) {
+    pub fn slide_by_diff(&mut self, sheet_index: usize, dx: i32, dy: i32) {
         let scrnx = *SCREEN_WIDTH as i32;
         let scrny = *SCREEN_HEIGHT as i32;
         let sheet = self.sheets_data[sheet_index];
-        let mut new_x = sheet.x as i32 + dx;
-        let mut new_y = sheet.y as i32 + dy;
-        let xmax = scrnx - width;
-        let ymax = scrny - height;
+        let mut new_x = sheet.x + dx;
+        let mut new_y = sheet.y + dy;
+        let xmax = scrnx - 1;
+        let ymax = scrny - 1;
         if new_x < 0 {
             new_x = 0;
         } else if new_x > xmax {
@@ -221,10 +226,10 @@ impl SheetManager {
         } else if new_y > ymax {
             new_y = ymax;
         }
-        self.slide(sheet_index, new_x as u32, new_y as u32);
+        self.slide(sheet_index, new_x, new_y);
     }
 
-    pub fn slide(&mut self, sheet_index: usize, x: u32, y: u32) {
+    pub fn slide(&mut self, sheet_index: usize, x: i32, y: i32) {
         let sheet = self.sheets_data[sheet_index];
         let old_x = sheet.x;
         let old_y = sheet.y;
@@ -234,7 +239,12 @@ impl SheetManager {
             sh.y = y;
         }
         if sheet.z.is_some() {
-            self.refresh_part(old_x, old_y, old_x + sheet.width, old_y + sheet.height);
+            self.refresh_part(
+                old_x,
+                old_y,
+                old_x + sheet.width as i32,
+                old_y + sheet.height as i32,
+            );
             self.refresh_part(x, y, x + sheet.width, y + sheet.height);
         }
     }
