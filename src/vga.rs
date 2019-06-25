@@ -1,4 +1,5 @@
 use core::fmt;
+use core::fmt::Write;
 use lazy_static::lazy_static;
 
 use crate::asm;
@@ -71,41 +72,73 @@ pub fn init_screen(buf: usize) {
     let xsize = *SCREEN_WIDTH as isize;
     let ysize = *SCREEN_HEIGHT as isize;
 
-    boxfill(buf, DarkCyan, 0, 0, xsize - 1, ysize - 29);
-    boxfill(buf, LightGray, 0, ysize - 28, xsize - 1, ysize - 28);
-    boxfill(buf, White, 0, ysize - 27, xsize - 1, ysize - 27);
-    boxfill(buf, LightGray, 0, ysize - 26, xsize - 1, ysize - 1);
+    boxfill(buf, xsize, DarkCyan, 0, 0, xsize - 1, ysize - 29);
+    boxfill(buf, xsize, LightGray, 0, ysize - 28, xsize - 1, ysize - 28);
+    boxfill(buf, xsize, White, 0, ysize - 27, xsize - 1, ysize - 27);
+    boxfill(buf, xsize, LightGray, 0, ysize - 26, xsize - 1, ysize - 1);
 
-    boxfill(buf, White, 3, ysize - 24, 59, ysize - 24);
-    boxfill(buf, White, 2, ysize - 24, 2, ysize - 4);
-    boxfill(buf, DarkGray, 3, ysize - 4, 59, ysize - 4);
-    boxfill(buf, DarkGray, 59, ysize - 23, 59, ysize - 5);
-    boxfill(buf, Black, 2, ysize - 3, 59, ysize - 3);
-    boxfill(buf, Black, 60, ysize - 24, 60, ysize - 3);
+    boxfill(buf, xsize, White, 3, ysize - 24, 59, ysize - 24);
+    boxfill(buf, xsize, White, 2, ysize - 24, 2, ysize - 4);
+    boxfill(buf, xsize, DarkGray, 3, ysize - 4, 59, ysize - 4);
+    boxfill(buf, xsize, DarkGray, 59, ysize - 23, 59, ysize - 5);
+    boxfill(buf, xsize, Black, 2, ysize - 3, 59, ysize - 3);
+    boxfill(buf, xsize, Black, 60, ysize - 24, 60, ysize - 3);
 
-    boxfill(buf, DarkGray, xsize - 47, ysize - 24, xsize - 4, ysize - 24);
-    boxfill(buf, DarkGray, xsize - 47, ysize - 23, xsize - 47, ysize - 4);
-    boxfill(buf, White, xsize - 47, ysize - 3, xsize - 4, ysize - 3);
-    boxfill(buf, White, xsize - 3, ysize - 24, xsize - 3, ysize - 3);
+    boxfill(
+        buf,
+        xsize,
+        DarkGray,
+        xsize - 47,
+        ysize - 24,
+        xsize - 4,
+        ysize - 24,
+    );
+    boxfill(
+        buf,
+        xsize,
+        DarkGray,
+        xsize - 47,
+        ysize - 23,
+        xsize - 47,
+        ysize - 4,
+    );
+    boxfill(
+        buf,
+        xsize,
+        White,
+        xsize - 47,
+        ysize - 3,
+        xsize - 4,
+        ysize - 3,
+    );
+    boxfill(
+        buf,
+        xsize,
+        White,
+        xsize - 3,
+        ysize - 24,
+        xsize - 3,
+        ysize - 3,
+    );
 }
 
-pub fn boxfill(buf: usize, color: Color, x0: isize, y0: isize, x1: isize, y1: isize) {
+pub fn boxfill(buf: usize, xsize: isize, color: Color, x0: isize, y0: isize, x1: isize, y1: isize) {
     for y in y0..=y1 {
         for x in x0..=x1 {
-            let ptr = unsafe { &mut *((buf as isize + y * *SCREEN_WIDTH as isize + x) as *mut u8) };
+            let ptr = unsafe { &mut *((buf as isize + y * xsize + x) as *mut u8) };
             *ptr = color as u8;
         }
     }
 }
 
-pub fn print_char(buf: usize, char: u8, color: Color, startx: isize, starty: isize) {
+pub fn print_char(buf: usize, xsize: usize, char: u8, color: Color, startx: isize, starty: isize) {
     let font = FONTS[char as usize];
     let color = color as u8;
-    let offset = startx + starty * *SCREEN_WIDTH as isize;
+    let offset = startx + starty * xsize as isize;
     for y in 0..FONT_HEIGHT {
         for x in 0..FONT_WIDTH {
             if font[y][x] {
-                let cell = (y * *SCREEN_WIDTH as usize + x) as isize;
+                let cell = (y * xsize + x) as isize;
                 let ptr = unsafe { &mut *((buf as isize + cell + offset) as *mut u8) };
                 *ptr = color;
             }
@@ -137,16 +170,27 @@ pub struct ScreenWriter {
     initial_x: usize,
     x: usize,
     y: usize,
+    xsize: usize,
+    ysize: usize,
     color: Color,
 }
 
 impl ScreenWriter {
-    pub fn new(buf_addr: Option<usize>, color: Color, x: usize, y: usize) -> ScreenWriter {
+    pub fn new(
+        buf_addr: Option<usize>,
+        color: Color,
+        x: usize,
+        y: usize,
+        xsize: usize,
+        ysize: usize,
+    ) -> ScreenWriter {
         ScreenWriter {
             buf_addr: buf_addr,
             initial_x: x,
             x,
             y,
+            xsize,
+            ysize,
             color,
         }
     }
@@ -160,21 +204,22 @@ impl ScreenWriter {
 impl fmt::Write for ScreenWriter {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         let str_bytes = s.as_bytes();
-        let height = *SCREEN_HEIGHT as usize;
-        let width = *SCREEN_WIDTH as usize;
+        let height = self.ysize;
+        let width = self.xsize;
         for i in 0..str_bytes.len() {
             if str_bytes[i] == b'\n' {
                 self.newline();
-                return Ok(());
+                continue;
             }
             let buf_addr = if let Some(b) = self.buf_addr {
                 b
             } else {
                 *VRAM_ADDR
             };
-            if self.x + FONT_WIDTH < width && self.y + FONT_HEIGHT < height {
+            if self.x + FONT_WIDTH <= width && self.y + FONT_HEIGHT <= height {
                 print_char(
                     buf_addr,
+                    self.xsize,
                     str_bytes[i],
                     self.color,
                     self.x as isize,
@@ -185,6 +230,7 @@ impl fmt::Write for ScreenWriter {
                 self.newline();
                 print_char(
                     buf_addr,
+                    self.xsize,
                     str_bytes[i],
                     self.color,
                     self.x as isize,
@@ -202,5 +248,82 @@ impl fmt::Write for ScreenWriter {
             }
         }
         Ok(())
+    }
+}
+
+pub fn make_window(buf: usize, xsize: i32, ysize: i32, title: &str) {
+    let xsize = xsize as isize;
+    let ysize = ysize as isize;
+    let closebtn: [&[u8; 16]; 14] = [
+        b"OOOOOOOOOOOOOOO@",
+        b"OQQQQQQQQQQQQQ$@",
+        b"OQQQQQQQQQQQQQ$@",
+        b"OQQQ@@QQQQ@@QQ$@",
+        b"OQQQQ@@QQ@@QQQ$@",
+        b"OQQQQQ@@@@QQQQ$@",
+        b"OQQQQQQ@@QQQQQ$@",
+        b"OQQQQQ@@@@QQQQ$@",
+        b"OQQQQ@@QQ@@QQQ$@",
+        b"OQQQ@@QQQQ@@QQ$@",
+        b"OQQQQQQQQQQQQQ$@",
+        b"OQQQQQQQQQQQQQ$@",
+        b"O$$$$$$$$$$$$$$@",
+        b"@@@@@@@@@@@@@@@@",
+    ];
+    boxfill(buf, xsize, Color::LightGray, 0, 0, xsize - 1, 0);
+    boxfill(buf, xsize, Color::White, 1, 1, xsize - 2, 1);
+    boxfill(buf, xsize, Color::LightGray, 0, 0, 0, ysize - 1);
+    boxfill(buf, xsize, Color::White, 1, 1, 1, ysize - 2);
+    boxfill(
+        buf,
+        xsize,
+        Color::DarkGray,
+        xsize - 2,
+        1,
+        xsize - 2,
+        ysize - 2,
+    );
+    boxfill(buf, xsize, Color::Black, xsize - 1, 0, xsize - 1, ysize - 1);
+    boxfill(buf, xsize, Color::LightGray, 2, 2, xsize - 3, ysize - 3);
+    boxfill(buf, xsize, Color::DarkBlue, 3, 3, xsize - 4, 20);
+    boxfill(
+        buf,
+        xsize,
+        Color::DarkGray,
+        1,
+        ysize - 2,
+        xsize - 2,
+        ysize - 2,
+    );
+    boxfill(buf, xsize, Color::Black, 0, ysize - 1, xsize - 1, ysize - 1);
+    let mut writer = ScreenWriter::new(
+        Some(buf),
+        Color::White,
+        24,
+        4,
+        xsize as usize,
+        ysize as usize,
+    );
+    write!(writer, "{}", title).unwrap();
+    for y in 0..14 {
+        let y = y as usize;
+        for x in 0..16 {
+            let x = x as usize;
+            let c = closebtn[y][x];
+            let color: Color;
+            if c == b'@' {
+                color = Color::Black
+            } else if c == b'$' {
+                color = Color::DarkGray;
+            } else if c == b'Q' {
+                color = Color::LightGray;
+            } else {
+                color = Color::White
+            }
+            let ptr = unsafe {
+                &mut *((buf + (5 + y) * xsize as usize + (xsize as usize - 21 + x)) as *mut Color)
+            };
+            *ptr = color;
+        }
     }
 }

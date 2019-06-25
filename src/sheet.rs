@@ -1,4 +1,4 @@
-use core::cmp::{min, max};
+use core::cmp::{max, min};
 
 use crate::vga::{Color, SCREEN_HEIGHT, SCREEN_WIDTH, VRAM_ADDR};
 
