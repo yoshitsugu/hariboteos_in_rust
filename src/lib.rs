@@ -18,7 +18,7 @@ mod vga;
 #[no_mangle]
 #[start]
 pub extern "C" fn haribote_os() {
-    use asm::{cli, sti, stihlt};
+    use asm::{cli, sti};
     use core::fmt::Write;
     use interrupt::{enable_mouse, KEYBUF, MOUSEBUF};
     use memory::{MemMan, MEMMAN_ADDR};
@@ -42,24 +42,26 @@ pub extern "C" fn haribote_os() {
     memman.free(0x00400000, 2).unwrap();
     memman.free(0x00400000, memtotal - 0x00400000).unwrap();
 
-    let sheet_manager = unsafe {
-        &mut *(memman
-            .alloc_4k(core::mem::size_of::<SheetManager>() as u32)
-            .unwrap() as *mut SheetManager)
-    };
-    *sheet_manager = SheetManager::new();
+    let sheet_manager_addr = memman
+        .alloc_4k(core::mem::size_of::<SheetManager>() as u32)
+        .unwrap();
+    let sheet_manager = unsafe { &mut *(sheet_manager_addr as *mut SheetManager) };
+    let sheet_map_addr = memman
+        .alloc_4k(*SCREEN_HEIGHT as u32 * *SCREEN_WIDTH as u32)
+        .unwrap();
+    *sheet_manager = SheetManager::new(sheet_map_addr as i32);
     let shi_bg = sheet_manager.alloc().unwrap();
     let shi_mouse = sheet_manager.alloc().unwrap();
     let shi_win = sheet_manager.alloc().unwrap();
     let scrnx = *SCREEN_WIDTH as i32;
     let scrny = *SCREEN_HEIGHT as i32;
     let buf_bg_addr = memman.alloc_4k((scrnx * scrny) as u32).unwrap() as usize;
-    let buf_win_addr = memman.alloc_4k((160 * 68) as u32).unwrap() as usize;
+    let buf_win_addr = memman.alloc_4k((160 * 52) as u32).unwrap() as usize;
     let buf_mouse = [0u8; MOUSE_CURSOR_WIDTH * MOUSE_CURSOR_HEIGHT];
     let buf_mouse_addr =
         &buf_mouse as *const [u8; MOUSE_CURSOR_HEIGHT * MOUSE_CURSOR_WIDTH] as usize;
     sheet_manager.set_buf(shi_bg, buf_bg_addr, scrnx, scrny, None);
-    sheet_manager.set_buf(shi_win, buf_win_addr, 160, 68, None);
+    sheet_manager.set_buf(shi_win, buf_win_addr, 160, 52, None);
     sheet_manager.set_buf(
         shi_mouse,
         buf_mouse_addr,
@@ -75,15 +77,13 @@ pub extern "C" fn haribote_os() {
     let mouse = Mouse::new(buf_mouse_addr);
     mouse.render();
 
-    make_window(buf_win_addr, 160, 68, "window");
-    let mut writer = ScreenWriter::new(Some(buf_win_addr), vga::Color::Black, 24, 28, 160, 68);
-    write!(writer, "Welcome to\n Haribote OS!").unwrap();
+    make_window(buf_win_addr, 160, 52, "counter");
 
     sheet_manager.slide(shi_mouse, mx, my);
     sheet_manager.slide(shi_win, 80, 72);
     sheet_manager.updown(shi_bg, Some(0));
-    sheet_manager.updown(shi_mouse, Some(1));
-    sheet_manager.updown(shi_win, Some(2));
+    sheet_manager.updown(shi_win, Some(1));
+    sheet_manager.updown(shi_mouse, Some(2));
 
     boxfill(
         buf_bg_addr,
@@ -110,7 +110,14 @@ pub extern "C" fn haribote_os() {
     )
     .unwrap();
     sheet_manager.refresh(shi_bg, 0, 0, scrnx, 48);
+    let mut count = 0u32;
     loop {
+        count += 1;
+        boxfill(buf_win_addr, 160, Color::LightGray, 40, 28, 119, 43);
+        let mut writer = ScreenWriter::new(Some(buf_win_addr), vga::Color::Black, 40, 28, 160, 52);
+        write!(writer, "{:>010}", count).unwrap();
+        sheet_manager.refresh(shi_win, 40, 28, 120, 44);
+
         cli();
         if KEYBUF.lock().status() != 0 {
             let key = KEYBUF.lock().get().unwrap();
@@ -181,7 +188,7 @@ pub extern "C" fn haribote_os() {
                 sheet_manager.slide_by_diff(shi_mouse, mouse_dec.x.get(), mouse_dec.y.get());
             }
         } else {
-            stihlt();
+            sti();
         }
     }
 }
