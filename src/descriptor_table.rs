@@ -1,5 +1,6 @@
 use crate::asm;
 use crate::handler;
+use crate::timer::inthandler20;
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
@@ -87,5 +88,8 @@ pub fn init() {
     *idt = GateDescriptor::new(handler!(inthandler21) as u32, 2 * 8, AR_INTGATE32);
     let idt = unsafe { &mut *((ADR_IDT + 0x2c * 8) as *mut GateDescriptor) };
     *idt = GateDescriptor::new(handler!(inthandler2c) as u32, 2 * 8, AR_INTGATE32);
+    let idt = unsafe { &mut *((ADR_IDT + 0x20 * 8) as *mut GateDescriptor) };
+    *idt = GateDescriptor::new(handler!(inthandler20) as u32, 2 * 8, AR_INTGATE32);
+
     load_idtr(LIMIT_IDT, ADR_IDT);
 }

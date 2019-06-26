@@ -10,7 +10,7 @@ lazy_static! {
 }
 
 const PIC0_ICW1: u32 = 0x0020;
-const PIC0_OCW2: u32 = 0x0020;
+pub const PIC0_OCW2: u32 = 0x0020;
 const PIC0_IMR: u32 = 0x0021;
 const PIC0_ICW2: u32 = 0x0021;
 const PIC0_ICW3: u32 = 0x0021;
@@ -50,7 +50,7 @@ pub fn init() {
 }
 
 pub fn allow_input() {
-    out8(PIC0_IMR, 0xf9); // PIC1とキーボードを許可(11111001)
+    out8(PIC0_IMR, 0xf8); // PITとPIC1とキーボードを許可(11111000)
     out8(PIC1_IMR, 0xef); // マウスを許可(11101111)
     init_keyboard();
 }

@@ -13,6 +13,7 @@ mod interrupt;
 mod memory;
 mod mouse;
 mod sheet;
+mod timer;
 mod vga;
 
 #[no_mangle]
@@ -33,6 +34,7 @@ pub extern "C" fn haribote_os() {
     interrupt::init();
     sti();
     interrupt::allow_input();
+    timer::init_pit();
     init_palette();
     enable_mouse();
     let memtotal = memory::memtest(0x00400000, 0xbfffffff);
@@ -110,12 +112,10 @@ pub extern "C" fn haribote_os() {
     )
     .unwrap();
     sheet_manager.refresh(shi_bg, 0, 0, scrnx, 48);
-    let mut count = 0u32;
     loop {
-        count += 1;
         boxfill(buf_win_addr, 160, Color::LightGray, 40, 28, 119, 43);
         let mut writer = ScreenWriter::new(Some(buf_win_addr), vga::Color::Black, 40, 28, 160, 52);
-        write!(writer, "{:>010}", count).unwrap();
+        write!(writer, "{:>010}", unsafe { timer::COUNTER }).unwrap();
         sheet_manager.refresh(shi_win, 40, 28, 120, 44);
 
         cli();
