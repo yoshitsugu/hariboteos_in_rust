@@ -32,9 +32,7 @@ pub extern "C" fn haribote_os() {
         SCREEN_WIDTH,
     };
 
-    let timer_buf1 = Fifo::new(8);
-    let timer_buf2 = Fifo::new(8);
-    let timer_buf3 = Fifo::new(8);
+    let timer_buf = Fifo::new(8);
 
     descriptor_table::init();
     interrupt::init();
@@ -47,17 +45,15 @@ pub extern "C" fn haribote_os() {
     let timer_index1 = TIMER_MANAGER.lock().alloc().unwrap();
     TIMER_MANAGER
         .lock()
-        .init_timer(timer_index1, &timer_buf1, 1);
+        .init_timer(timer_index1, &timer_buf, 10);
     TIMER_MANAGER.lock().set_time(timer_index1, 1000);
     let timer_index2 = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER
-        .lock()
-        .init_timer(timer_index2, &timer_buf2, 1);
+    TIMER_MANAGER.lock().init_timer(timer_index2, &timer_buf, 3);
     TIMER_MANAGER.lock().set_time(timer_index2, 300);
     let timer_index3 = TIMER_MANAGER.lock().alloc().unwrap();
     TIMER_MANAGER
         .lock()
-        .init_timer(timer_index3, &timer_buf3, 1);
+        .init_timer(timer_index3, &timer_buf, 1);
     TIMER_MANAGER.lock().set_time(timer_index3, 50);
 
     let memtotal = memory::memtest(0x00400000, 0xbfffffff);
@@ -196,64 +192,68 @@ pub extern "C" fn haribote_os() {
                 );
                 sheet_manager.slide_by_diff(shi_mouse, mouse_dec.x.get(), mouse_dec.y.get());
             }
-        } else if timer_buf1.status() != 0 {
-            let _ = timer_buf1.get().unwrap();
+        } else if timer_buf.status() != 0 {
+            let i = timer_buf.get().unwrap();
             sti();
-            let mut writer = ScreenWriter::new(
-                Some(buf_bg_addr),
-                vga::Color::White,
-                0,
-                64,
-                *SCREEN_WIDTH as usize,
-                *SCREEN_HEIGHT as usize,
-            );
-            write!(writer, "10[sec]").unwrap();
-            sheet_manager.refresh(shi_bg, 0, 64, 56, 80);
-        } else if timer_buf2.status() != 0 {
-            let _ = timer_buf2.get().unwrap();
-            sti();
-            let mut writer = ScreenWriter::new(
-                Some(buf_bg_addr),
-                vga::Color::White,
-                0,
-                80,
-                *SCREEN_WIDTH as usize,
-                *SCREEN_HEIGHT as usize,
-            );
-            write!(writer, "3[sec]").unwrap();
-            sheet_manager.refresh(shi_bg, 0, 80, 56, 96);
-        } else if timer_buf3.status() != 0 {
-            let i = timer_buf3.get().unwrap();
-            sti();
-            if i != 0 {
-                TIMER_MANAGER
-                    .lock()
-                    .init_timer(timer_index3, &timer_buf3, 0);
-                boxfill(
+            if i == 10 {
+                write_with_bg!(
+                    sheet_manager,
+                    shi_bg,
                     buf_bg_addr,
                     *SCREEN_WIDTH as isize,
+                    *SCREEN_HEIGHT as isize,
+                    0,
+                    64,
                     Color::White,
-                    8,
-                    96,
-                    15,
-                    111,
+                    Color::DarkCyan,
+                    7,
+                    "10[sec]"
+                );
+            } else if i == 3 {
+                write_with_bg!(
+                    sheet_manager,
+                    shi_bg,
+                    buf_bg_addr,
+                    *SCREEN_WIDTH as isize,
+                    *SCREEN_HEIGHT as isize,
+                    0,
+                    80,
+                    Color::White,
+                    Color::DarkCyan,
+                    6,
+                    "3[sec]"
                 );
             } else {
-                TIMER_MANAGER
-                    .lock()
-                    .init_timer(timer_index3, &timer_buf3, 1);
-                boxfill(
-                    buf_bg_addr,
-                    *SCREEN_WIDTH as isize,
-                    Color::DarkCyan,
-                    8,
-                    96,
-                    15,
-                    111,
-                );
+                if i != 0 {
+                    TIMER_MANAGER
+                        .lock()
+                        .init_timer(timer_index3, &timer_buf, 0);
+                    boxfill(
+                        buf_bg_addr,
+                        *SCREEN_WIDTH as isize,
+                        Color::White,
+                        8,
+                        96,
+                        15,
+                        111,
+                    );
+                } else {
+                    TIMER_MANAGER
+                        .lock()
+                        .init_timer(timer_index3, &timer_buf, 1);
+                    boxfill(
+                        buf_bg_addr,
+                        *SCREEN_WIDTH as isize,
+                        Color::DarkCyan,
+                        8,
+                        96,
+                        15,
+                        111,
+                    );
+                }
+                TIMER_MANAGER.lock().set_time(timer_index3, 50);
+                sheet_manager.refresh(shi_bg, 8, 96, 16, 112)
             }
-            TIMER_MANAGER.lock().set_time(timer_index3, 50);
-            sheet_manager.refresh(shi_bg, 8, 96, 16, 112)
         } else {
             sti();
         }
