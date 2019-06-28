@@ -21,14 +21,20 @@ mod vga;
 pub extern "C" fn haribote_os() {
     use asm::{cli, sti};
     use core::fmt::Write;
+    use fifo::Fifo;
     use interrupt::{enable_mouse, KEYBUF, MOUSEBUF};
     use memory::{MemMan, MEMMAN_ADDR};
     use mouse::{Mouse, MouseDec, MOUSE_CURSOR_HEIGHT, MOUSE_CURSOR_WIDTH};
     use sheet::SheetManager;
+    use timer::TIMER_MANAGER;
     use vga::{
         boxfill, init_palette, init_screen, make_window, Color, ScreenWriter, SCREEN_HEIGHT,
         SCREEN_WIDTH,
     };
+
+    let timer_buf1 = Fifo::new(8);
+    let timer_buf2 = Fifo::new(8);
+    let timer_buf3 = Fifo::new(8);
 
     descriptor_table::init();
     interrupt::init();
@@ -37,6 +43,23 @@ pub extern "C" fn haribote_os() {
     timer::init_pit();
     init_palette();
     enable_mouse();
+
+    let timer_index1 = TIMER_MANAGER.lock().alloc().unwrap();
+    TIMER_MANAGER
+        .lock()
+        .init_timer(timer_index1, &timer_buf1, 1);
+    TIMER_MANAGER.lock().set_time(timer_index1, 1000);
+    let timer_index2 = TIMER_MANAGER.lock().alloc().unwrap();
+    TIMER_MANAGER
+        .lock()
+        .init_timer(timer_index2, &timer_buf2, 1);
+    TIMER_MANAGER.lock().set_time(timer_index2, 300);
+    let timer_index3 = TIMER_MANAGER.lock().alloc().unwrap();
+    TIMER_MANAGER
+        .lock()
+        .init_timer(timer_index3, &timer_buf3, 1);
+    TIMER_MANAGER.lock().set_time(timer_index3, 50);
+
     let memtotal = memory::memtest(0x00400000, 0xbfffffff);
     let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
     *memman = MemMan::new();
@@ -113,12 +136,14 @@ pub extern "C" fn haribote_os() {
     .unwrap();
     sheet_manager.refresh(shi_bg, 0, 0, scrnx, 48);
     loop {
-        boxfill(buf_win_addr, 160, Color::LightGray, 40, 28, 119, 43);
-        let mut writer = ScreenWriter::new(Some(buf_win_addr), vga::Color::Black, 40, 28, 160, 52);
-        write!(writer, "{:>010}", unsafe { timer::COUNTER }).unwrap();
-        sheet_manager.refresh(shi_win, 40, 28, 120, 44);
-
         cli();
+        if let Some(t) = TIMER_MANAGER.try_lock() {
+            boxfill(buf_win_addr, 160, Color::LightGray, 40, 28, 119, 43);
+            let mut writer =
+                ScreenWriter::new(Some(buf_win_addr), vga::Color::Black, 40, 28, 160, 52);
+            write!(writer, "{:>010}", t.count).unwrap();
+            sheet_manager.refresh(shi_win, 40, 28, 120, 44);
+        }
         if KEYBUF.lock().status() != 0 {
             let key = KEYBUF.lock().get().unwrap();
             sti();
@@ -187,6 +212,64 @@ pub extern "C" fn haribote_os() {
                 sheet_manager.refresh(shi_bg, 32, 0, 32 + 15 * 8, 16);
                 sheet_manager.slide_by_diff(shi_mouse, mouse_dec.x.get(), mouse_dec.y.get());
             }
+        } else if timer_buf1.status() != 0 {
+            let _ = timer_buf1.get().unwrap();
+            sti();
+            let mut writer = ScreenWriter::new(
+                Some(buf_bg_addr),
+                vga::Color::White,
+                0,
+                64,
+                *SCREEN_WIDTH as usize,
+                *SCREEN_HEIGHT as usize,
+            );
+            write!(writer, "10[sec]").unwrap();
+            sheet_manager.refresh(shi_bg, 0, 64, 56, 80);
+        } else if timer_buf2.status() != 0 {
+            let _ = timer_buf2.get().unwrap();
+            sti();
+            let mut writer = ScreenWriter::new(
+                Some(buf_bg_addr),
+                vga::Color::White,
+                0,
+                80,
+                *SCREEN_WIDTH as usize,
+                *SCREEN_HEIGHT as usize,
+            );
+            write!(writer, "3[sec]").unwrap();
+            sheet_manager.refresh(shi_bg, 0, 80, 56, 96);
+        } else if timer_buf3.status() != 0 {
+            let i = timer_buf3.get().unwrap();
+            sti();
+            if i != 0 {
+                TIMER_MANAGER
+                    .lock()
+                    .init_timer(timer_index3, &timer_buf3, 0);
+                boxfill(
+                    buf_bg_addr,
+                    *SCREEN_WIDTH as isize,
+                    Color::White,
+                    8,
+                    96,
+                    15,
+                    111,
+                );
+            } else {
+                TIMER_MANAGER
+                    .lock()
+                    .init_timer(timer_index3, &timer_buf3, 1);
+                boxfill(
+                    buf_bg_addr,
+                    *SCREEN_WIDTH as isize,
+                    Color::DarkCyan,
+                    8,
+                    96,
+                    15,
+                    111,
+                );
+            }
+            TIMER_MANAGER.lock().set_time(timer_index3, 50);
+            sheet_manager.refresh(shi_bg, 8, 96, 16, 112)
         } else {
             sti();
         }
