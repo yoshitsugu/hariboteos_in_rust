@@ -21,8 +21,8 @@ mod vga;
 pub extern "C" fn haribote_os() {
     use asm::{cli, sti};
     use core::fmt::Write;
-    use fifo::Fifo;
-    use interrupt::{enable_mouse, KEYBUF, MOUSEBUF};
+    use fifo::FIFO_BUF;
+    use interrupt::enable_mouse;
     use memory::{MemMan, MEMMAN_ADDR};
     use mouse::{Mouse, MouseDec, MOUSE_CURSOR_HEIGHT, MOUSE_CURSOR_WIDTH};
     use sheet::SheetManager;
@@ -31,8 +31,6 @@ pub extern "C" fn haribote_os() {
         boxfill, init_palette, init_screen, make_window, Color, ScreenWriter, SCREEN_HEIGHT,
         SCREEN_WIDTH,
     };
-
-    let timer_buf = Fifo::new(8);
 
     descriptor_table::init();
     interrupt::init();
@@ -43,17 +41,13 @@ pub extern "C" fn haribote_os() {
     enable_mouse();
 
     let timer_index1 = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER
-        .lock()
-        .init_timer(timer_index1, &timer_buf, 10);
+    TIMER_MANAGER.lock().init_timer(timer_index1, 10);
     TIMER_MANAGER.lock().set_time(timer_index1, 1000);
     let timer_index2 = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER.lock().init_timer(timer_index2, &timer_buf, 3);
+    TIMER_MANAGER.lock().init_timer(timer_index2, 3);
     TIMER_MANAGER.lock().set_time(timer_index2, 300);
     let timer_index3 = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER
-        .lock()
-        .init_timer(timer_index3, &timer_buf, 1);
+    TIMER_MANAGER.lock().init_timer(timer_index3, 1);
     TIMER_MANAGER.lock().set_time(timer_index3, 50);
 
     let memtotal = memory::memtest(0x00400000, 0xbfffffff);
@@ -121,81 +115,64 @@ pub extern "C" fn haribote_os() {
         memtotal / (1024 * 1024),
         memman.total() / 1024
     );
+    let mut count = 0;
+    let mut count_done = false;
     loop {
+        count += 1;
         cli();
-        if let Some(t) = TIMER_MANAGER.try_lock() {
-            write_with_bg!(
-                sheet_manager,
-                shi_win,
-                buf_win_addr,
-                160,
-                52,
-                40,
-                28,
-                Color::Black,
-                Color::LightGray,
-                10,
-                "{:>010}",
-                t.count
-            );
-        }
-        if KEYBUF.lock().status() != 0 {
-            let key = KEYBUF.lock().get().unwrap();
+        if FIFO_BUF.lock().status() != 0 {
+            let i = FIFO_BUF.lock().get().unwrap();
             sti();
-            write_with_bg!(
-                sheet_manager,
-                shi_bg,
-                buf_bg_addr,
-                *SCREEN_WIDTH as isize,
-                *SCREEN_HEIGHT as isize,
-                0,
-                0,
-                Color::White,
-                Color::DarkCyan,
-                2,
-                "{:x}",
-                key
-            );
-        } else if MOUSEBUF.lock().status() != 0 {
-            let i = MOUSEBUF.lock().get().unwrap();
-            sti();
-            if mouse_dec.decode(i).is_some() {
+            if 256 <= i && i <= 511 {
                 write_with_bg!(
                     sheet_manager,
                     shi_bg,
                     buf_bg_addr,
                     *SCREEN_WIDTH as isize,
                     *SCREEN_HEIGHT as isize,
-                    32,
+                    0,
                     0,
                     Color::White,
                     Color::DarkCyan,
-                    15,
-                    "[{}{}{} {:>4},{:>4}]",
-                    if (mouse_dec.btn.get() & 0x01) != 0 {
-                        'L'
-                    } else {
-                        'l'
-                    },
-                    if (mouse_dec.btn.get() & 0x04) != 0 {
-                        'C'
-                    } else {
-                        'c'
-                    },
-                    if (mouse_dec.btn.get() & 0x02) != 0 {
-                        'R'
-                    } else {
-                        'r'
-                    },
-                    mouse_dec.x.get(),
-                    mouse_dec.y.get(),
+                    2,
+                    "{:x}",
+                    i - 256
                 );
-                sheet_manager.slide_by_diff(shi_mouse, mouse_dec.x.get(), mouse_dec.y.get());
-            }
-        } else if timer_buf.status() != 0 {
-            let i = timer_buf.get().unwrap();
-            sti();
-            if i == 10 {
+            } else if 512 <= i && i <= 767 {
+                if mouse_dec.decode((i - 512) as u8).is_some() {
+                    write_with_bg!(
+                        sheet_manager,
+                        shi_bg,
+                        buf_bg_addr,
+                        *SCREEN_WIDTH as isize,
+                        *SCREEN_HEIGHT as isize,
+                        32,
+                        0,
+                        Color::White,
+                        Color::DarkCyan,
+                        15,
+                        "[{}{}{} {:>4},{:>4}]",
+                        if (mouse_dec.btn.get() & 0x01) != 0 {
+                            'L'
+                        } else {
+                            'l'
+                        },
+                        if (mouse_dec.btn.get() & 0x04) != 0 {
+                            'C'
+                        } else {
+                            'c'
+                        },
+                        if (mouse_dec.btn.get() & 0x02) != 0 {
+                            'R'
+                        } else {
+                            'r'
+                        },
+                        mouse_dec.x.get(),
+                        mouse_dec.y.get(),
+                    );
+                    sheet_manager.slide_by_diff(shi_mouse, mouse_dec.x.get(), mouse_dec.y.get());
+                }
+            } else if i == 10 {
                 write_with_bg!(
                     sheet_manager,
                     shi_bg,
@@ -209,6 +186,23 @@ pub extern "C" fn haribote_os() {
                     7,
                     "10[sec]"
                 );
+                if !count_done {
+                    write_with_bg!(
+                        sheet_manager,
+                        shi_win,
+                        buf_win_addr,
+                        160,
+                        52,
+                        40,
+                        28,
+                        Color::Black,
+                        Color::LightGray,
+                        10,
+                        "{:>010}",
+                        count
+                    );
+                    count_done = true;
+                }
             } else if i == 3 {
                 write_with_bg!(
                     sheet_manager,
@@ -223,11 +217,11 @@ pub extern "C" fn haribote_os() {
                     6,
                     "3[sec]"
                 );
+                // 起動直後から測定すると誤差が大きいのでここから測定
+                count = 0;
             } else {
                 if i != 0 {
-                    TIMER_MANAGER
-                        .lock()
-                        .init_timer(timer_index3, &timer_buf, 0);
+                    TIMER_MANAGER.lock().init_timer(timer_index3, 0);
                     boxfill(
                         buf_bg_addr,
                         *SCREEN_WIDTH as isize,
@@ -238,9 +232,7 @@ pub extern "C" fn haribote_os() {
                         111,
                     );
                 } else {
-                    TIMER_MANAGER
-                        .lock()
-                        .init_timer(timer_index3, &timer_buf, 1);
+                    TIMER_MANAGER.lock().init_timer(timer_index3, 1);
                     boxfill(
                         buf_bg_addr,
                         *SCREEN_WIDTH as isize,

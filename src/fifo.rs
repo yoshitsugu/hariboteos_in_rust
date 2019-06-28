@@ -1,7 +1,9 @@
 use core::cell::{Cell, RefCell};
+use lazy_static::lazy_static;
+use spin::Mutex;
 
 pub struct Fifo {
-    pub buf: RefCell<[u8; 128]>,
+    pub buf: RefCell<[u32; 128]>,
     pub p: Cell<u32>,
     pub q: Cell<u32>,
     pub free: Cell<u32>,
@@ -23,7 +25,7 @@ impl Fifo {
         }
     }
 
-    pub fn put(&self, data: u8) -> Result<(), &'static str> {
+    pub fn put(&self, data: u32) -> Result<(), &'static str> {
         if self.free.get() == 0 {
             self.flags.set(self.flags.get() | FLAGS_OVERRUN);
             return Err("FLAGS_OVERRUN ERROR");
@@ -40,7 +42,7 @@ impl Fifo {
         return Ok(());
     }
 
-    pub fn get(&self) -> Result<u8, &'static str> {
+    pub fn get(&self) -> Result<u32, &'static str> {
         if self.free.get() == self.size {
             return Err("NO DATA");
         }
@@ -56,4 +58,8 @@ impl Fifo {
     pub fn status(&self) -> u32 {
         self.size - self.free.get()
     }
+}
+
+lazy_static! {
+    pub static ref FIFO_BUF: Mutex<Fifo> = Mutex::new(Fifo::new(128));
 }

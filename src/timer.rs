@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 
 use crate::asm::{cli, load_eflags, out8, store_eflags};
-use crate::fifo::Fifo;
+use crate::fifo::{Fifo, FIFO_BUF};
 use crate::interrupt::PIC0_OCW2;
 
 const PIT_CTRL: u32 = 0x0043;
@@ -33,8 +33,7 @@ pub extern "C" fn inthandler20() {
             let mut t_mut = &mut tm.timers_data[timer_index];
             t_mut.flag = TimerFlag::USED;
         }
-        let fifo = unsafe { &*(t.fifo_addr as *const Fifo) };
-        fifo.put(t.data).unwrap();
+        FIFO_BUF.lock().put(t.data as u32).unwrap();
     }
     tm.counting -= timeout_count;
     for i in 0..tm.counting {
@@ -53,7 +52,6 @@ const MAX_TIMER: usize = 500;
 pub struct Timer {
     pub timeout: u32,
     pub flag: TimerFlag,
-    pub fifo_addr: u32,
     pub data: u8,
 }
 
@@ -62,7 +60,6 @@ impl Timer {
         Timer {
             timeout: 0,
             flag: TimerFlag::AVAILABLE,
-            fifo_addr: 0,
             data: 0,
         }
     }
@@ -129,9 +126,8 @@ impl TimerManager {
         store_eflags(eflags);
     }
 
-    pub fn init_timer(&mut self, timer_index: usize, fifo: &Fifo, data: u8) {
+    pub fn init_timer(&mut self, timer_index: usize, data: u8) {
         let mut timer = &mut self.timers_data[timer_index];
-        timer.fifo_addr = fifo as *const Fifo as u32;
         timer.data = data;
     }
 

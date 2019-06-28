@@ -1,13 +1,5 @@
 use crate::asm::{in8, out8};
-use crate::fifo::Fifo;
-
-use lazy_static::lazy_static;
-use spin::Mutex;
-
-lazy_static! {
-    pub static ref KEYBUF: Mutex<Fifo> = Mutex::new(Fifo::new(32));
-    pub static ref MOUSEBUF: Mutex<Fifo> = Mutex::new(Fifo::new(128));
-}
+use crate::fifo::FIFO_BUF;
 
 const PIC0_ICW1: u32 = 0x0020;
 pub const PIC0_OCW2: u32 = 0x0020;
@@ -79,15 +71,18 @@ pub fn enable_mouse() {
     out8(PORT_KEYDAT, MOUSECMD_ENABLE);
 }
 
+const KEYBOARD_OFFSET: u32 = 256;
+const MOUSE_OFFSET: u32 = 512;
+
 pub extern "C" fn inthandler21() {
     out8(PIC0_OCW2, 0x61); // IRQ-01 受付終了
     let key = in8(PORT_KEYDAT);
-    KEYBUF.lock().put(key).unwrap();
+    FIFO_BUF.lock().put(key as u32 + KEYBOARD_OFFSET).unwrap();
 }
 
 pub extern "C" fn inthandler2c() {
     out8(PIC1_OCW2, 0x64); // IRQ-12受付完了をPIC1に通知
     out8(PIC0_OCW2, 0x62); // IRQ-02受付完了をPIC0に通知
     let data = in8(PORT_KEYDAT);
-    MOUSEBUF.lock().put(data).unwrap();
+    FIFO_BUF.lock().put(data as u32 + MOUSE_OFFSET).unwrap();
 }
