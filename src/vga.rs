@@ -251,6 +251,23 @@ impl fmt::Write for ScreenWriter {
     }
 }
 
+#[macro_export]
+macro_rules! write_with_bg {
+    ($sheet_manager: expr, $sheet_addr: expr, $dst: expr, $width: expr, $height: expr, $x: expr, $y: expr, $fg: expr, $bg: expr, $length: expr, $($arg: tt)* ) => {{
+        boxfill($dst, $width, $bg, $x, $y, $x + 8 * $length - 1, $y + 15);
+        let mut writer = ScreenWriter::new(
+                    Some($dst),
+                    $fg,
+                    $x,
+                    $y,
+                    $width as usize,
+                    $height as usize);
+        use core::fmt::Write;
+        write!(writer, $($arg)*).unwrap();
+        $sheet_manager.refresh($sheet_addr, $x, $y, $x + $length * 8, $y + 16);
+    }}
+}
+
 pub fn make_window(buf: usize, xsize: i32, ysize: i32, title: &str) {
     let xsize = xsize as isize;
     let ysize = ysize as isize;
