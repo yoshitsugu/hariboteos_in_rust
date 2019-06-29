@@ -20,7 +20,6 @@ mod vga;
 #[start]
 pub extern "C" fn haribote_os() {
     use asm::{cli, sti};
-    use core::fmt::Write;
     use fifo::FIFO_BUF;
     use interrupt::enable_mouse;
     use memory::{MemMan, MEMMAN_ADDR};
