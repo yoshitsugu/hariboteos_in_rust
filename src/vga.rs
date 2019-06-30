@@ -254,17 +254,17 @@ impl fmt::Write for ScreenWriter {
 #[macro_export]
 macro_rules! write_with_bg {
     ($sheet_manager: expr, $sheet_addr: expr, $dst: expr, $width: expr, $height: expr, $x: expr, $y: expr, $fg: expr, $bg: expr, $length: expr, $($arg: tt)* ) => {{
-        boxfill($dst, $width, $bg, $x, $y, $x + 8 * $length - 1, $y + 15);
+        boxfill($dst, $width as isize, $bg, $x as isize, $y as isize, $x as isize + 8 * $length as isize - 1, $y as isize + 15);
         let mut writer = ScreenWriter::new(
                     Some($dst),
                     $fg,
-                    $x,
-                    $y,
+                    $x as usize,
+                    $y as usize,
                     $width as usize,
                     $height as usize);
         use core::fmt::Write;
         write!(writer, $($arg)*).unwrap();
-        $sheet_manager.refresh($sheet_addr, $x, $y, $x + $length * 8, $y + 16);
+        $sheet_manager.refresh($sheet_addr, $x as i32, $y as i32, $x as i32 + $length as i32 * 8, $y as i32 + 16);
     }}
 }
 
@@ -343,4 +343,42 @@ pub fn make_window(buf: usize, xsize: i32, ysize: i32, title: &str) {
             *ptr = color;
         }
     }
+}
+
+pub fn make_textbox(
+    buf: usize,
+    bxsize: isize,
+    x0: isize,
+    y0: isize,
+    sx: isize,
+    sy: isize,
+    c: Color,
+) {
+    let x1 = x0 + sx;
+    let y1 = y0 + sy;
+    boxfill(buf, bxsize, Color::DarkGray, x0 - 2, y0 - 3, x1 + 1, y0 - 3);
+    boxfill(buf, bxsize, Color::DarkGray, x0 - 3, y0 - 3, x0 - 3, y1 + 1);
+    boxfill(buf, bxsize, Color::White, x0 - 3, y1 + 2, x1 + 1, y1 + 2);
+    boxfill(buf, bxsize, Color::White, x1 + 2, y0 - 3, x1 + 2, y1 + 2);
+    boxfill(buf, bxsize, Color::Black, x0 - 1, y0 - 2, x1 + 0, y0 - 2);
+    boxfill(buf, bxsize, Color::Black, x0 - 2, y0 - 2, x0 - 2, y1 + 0);
+    boxfill(
+        buf,
+        bxsize,
+        Color::LightGray,
+        x0 - 2,
+        y1 + 1,
+        x1 + 0,
+        y1 + 1,
+    );
+    boxfill(
+        buf,
+        bxsize,
+        Color::LightGray,
+        x1 + 1,
+        y0 - 2,
+        x1 + 1,
+        y1 + 1,
+    );
+    boxfill(buf, bxsize, c, x0 - 1, y0 - 1, x1 + 0, y1 + 0);
 }

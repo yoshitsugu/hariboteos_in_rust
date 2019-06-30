@@ -1,6 +1,9 @@
 use crate::asm;
 use crate::handler;
+use crate::keyboard::inthandler21;
+use crate::mouse::inthandler2c;
 use crate::timer::inthandler20;
+use asm::{load_gdtr, load_idtr};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
@@ -63,8 +66,6 @@ const AR_DATA32_RW: i32 = 0x4092;
 const AR_CODE32_ER: i32 = 0x409a;
 
 pub fn init() {
-    use crate::interrupt::{inthandler21, inthandler2c};
-    use asm::{load_gdtr, load_idtr};
     // GDTの初期化
     for i in 0..=(LIMIT_GDT / 8) {
         let gdt = unsafe { &mut *((ADR_GDT + i * 8) as *mut SegmentDescriptor) };

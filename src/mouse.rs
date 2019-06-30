@@ -1,5 +1,9 @@
-use crate::vga::{putblock, Color};
 use core::cell::{Cell, RefCell};
+
+use crate::asm::{in8, out8};
+use crate::fifo::FIFO_BUF;
+use crate::interrupt::{PIC0_OCW2, PIC1_OCW2, PORT_KEYDAT};
+use crate::vga::{putblock, Color};
 
 #[derive(Debug)]
 pub struct MouseDec {
@@ -131,4 +135,13 @@ impl Mouse {
             0,
         );
     }
+}
+
+const MOUSE_OFFSET: u32 = 512;
+
+pub extern "C" fn inthandler2c() {
+    out8(PIC1_OCW2, 0x64); // IRQ-12受付完了をPIC1に通知
+    out8(PIC0_OCW2, 0x62); // IRQ-02受付完了をPIC0に通知
+    let data = in8(PORT_KEYDAT);
+    FIFO_BUF.lock().put(data as u32 + MOUSE_OFFSET).unwrap();
 }
