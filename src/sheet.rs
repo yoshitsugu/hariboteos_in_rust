@@ -313,7 +313,7 @@ impl SheetManager {
     }
 
     pub fn slide_by_diff(&mut self, sheet_index: usize, dx: i32, dy: i32) {
-        let (new_x, new_y) = self.get_diff(sheet_index, dx, dy);
+        let (new_x, new_y) = self.get_new_point(sheet_index, dx, dy);
         self.slide(sheet_index, new_x, new_y);
     }
 
