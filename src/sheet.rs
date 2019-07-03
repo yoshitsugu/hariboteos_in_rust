@@ -73,6 +73,11 @@ impl SheetManager {
         sheet.set(buf_addr, width, height, transparent);
     }
 
+    pub fn get_buf_addr(&self, sheet_index: usize) -> usize {
+        let sheet = &self.sheets_data[sheet_index];
+        sheet.buf_addr
+    }
+
     pub fn alloc(&mut self) -> Option<usize> {
         for i in 0..MAX_SHEETS {
             if self.sheets_data[i].flag == SheetFlag::AVAILABLE {

@@ -95,9 +95,9 @@ pub fn load_tr(adr: i32) {
 }
 
 #[naked]
-pub fn taskswitch(adr: i32) {
+pub fn farjmp(eip: i32, cs: i32) {
     unsafe {
-        asm!("JMP $0,0" :: "i"(adr) :: "intel");
+        asm!("LJMP $0,$1" :: "i"(cs), "i"(eip));
     }
 }
 

@@ -253,10 +253,11 @@ impl fmt::Write for ScreenWriter {
 
 #[macro_export]
 macro_rules! write_with_bg {
-    ($sheet_manager: expr, $sheet_addr: expr, $dst: expr, $width: expr, $height: expr, $x: expr, $y: expr, $fg: expr, $bg: expr, $length: expr, $($arg: tt)* ) => {{
-        boxfill($dst, $width as isize, $bg, $x as isize, $y as isize, $x as isize + 8 * $length as isize - 1, $y as isize + 15);
-        let mut writer = ScreenWriter::new(
-                    Some($dst),
+    ($sheet_manager: expr, $sheet_addr: expr, $width: expr, $height: expr, $x: expr, $y: expr, $fg: expr, $bg: expr, $length: expr, $($arg: tt)* ) => {{
+        let buf_addr = $sheet_manager.get_buf_addr($sheet_addr);
+        crate::vga::boxfill(buf_addr, $width as isize, $bg, $x as isize, $y as isize, $x as isize + 8 * $length as isize - 1, $y as isize + 15);
+        let mut writer = crate::vga::ScreenWriter::new(
+                    Some(buf_addr),
                     $fg,
                     $x as usize,
                     $y as usize,
