@@ -1,5 +1,5 @@
 use crate::asm::{in8, out8};
-use crate::fifo::FIFO_BUF;
+use crate::fifo::Fifo;
 use crate::interrupt::{PIC0_OCW2, PORT_KEYCMD, PORT_KEYDAT};
 
 pub const KEYBOARD_OFFSET: u32 = 256;
@@ -7,6 +7,8 @@ const PORT_KEYSTA: u32 = 0x0064;
 const KEYCMD_WRITE_MODE: u8 = 0x60;
 const KEYSTA_SEND_NOTREADY: u8 = 0x02;
 const KBC_MODE: u8 = 0x47;
+
+static mut KEY_FIFO_ADDR: usize = 0;
 
 pub static KEYTABLE: [u8; 84] = [
     0, 0, b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'0', b'-', b'^', 0, 0, b'Q', b'W',
@@ -26,7 +28,10 @@ pub fn wait_kbc_sendready() {
     return;
 }
 
-pub fn init_keyboard() {
+pub fn init_keyboard(fifo_addr: usize) {
+    unsafe {
+        KEY_FIFO_ADDR = fifo_addr;
+    }
     wait_kbc_sendready();
     out8(PORT_KEYCMD, KEYCMD_WRITE_MODE);
     wait_kbc_sendready();
@@ -36,5 +41,6 @@ pub fn init_keyboard() {
 pub extern "C" fn inthandler21() {
     out8(PIC0_OCW2, 0x61); // IRQ-01 受付終了
     let key = in8(PORT_KEYDAT);
-    FIFO_BUF.lock().put(key as u32 + KEYBOARD_OFFSET).unwrap();
+    let fifo = unsafe { &mut *(KEY_FIFO_ADDR as *mut Fifo) };
+    fifo.put(key as u32 + KEYBOARD_OFFSET).unwrap();
 }

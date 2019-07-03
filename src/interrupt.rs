@@ -1,5 +1,4 @@
 use crate::asm::out8;
-use crate::keyboard::{init_keyboard, wait_kbc_sendready};
 
 const PIC0_ICW1: u32 = 0x0020;
 pub const PIC0_OCW2: u32 = 0x0020;
@@ -16,8 +15,6 @@ const PIC1_ICW4: u32 = 0x00a1;
 
 pub const PORT_KEYCMD: u32 = 0x0064;
 pub const PORT_KEYDAT: u32 = 0x60;
-const KEYCMD_SENDTO_MOUSE: u8 = 0xd4;
-const MOUSECMD_ENABLE: u8 = 0xf4;
 
 pub fn init() {
     out8(PIC0_IMR, 0xff); // 全ての割り込みを受け付けない
@@ -40,12 +37,4 @@ pub fn init() {
 pub fn allow_input() {
     out8(PIC0_IMR, 0xf8); // PITとPIC1とキーボードを許可(11111000)
     out8(PIC1_IMR, 0xef); // マウスを許可(11101111)
-    init_keyboard();
-}
-
-pub fn enable_mouse() {
-    wait_kbc_sendready();
-    out8(PORT_KEYCMD, KEYCMD_SENDTO_MOUSE);
-    wait_kbc_sendready();
-    out8(PORT_KEYDAT, MOUSECMD_ENABLE);
 }

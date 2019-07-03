@@ -1,9 +1,15 @@
 use core::cell::{Cell, RefCell};
 
 use crate::asm::{in8, out8};
-use crate::fifo::FIFO_BUF;
-use crate::interrupt::{PIC0_OCW2, PIC1_OCW2, PORT_KEYDAT};
+use crate::fifo::Fifo;
+use crate::interrupt::{PIC0_OCW2, PIC1_OCW2, PORT_KEYCMD, PORT_KEYDAT};
+use crate::keyboard::wait_kbc_sendready;
 use crate::vga::{putblock, Color};
+
+const KEYCMD_SENDTO_MOUSE: u8 = 0xd4;
+const MOUSECMD_ENABLE: u8 = 0xf4;
+
+static mut MOUSE_FIFO_ADDR: usize = 0;
 
 #[derive(Debug)]
 pub struct MouseDec {
@@ -137,11 +143,22 @@ impl Mouse {
     }
 }
 
+pub fn enable_mouse(fifo_addr: usize) {
+    unsafe {
+        MOUSE_FIFO_ADDR = fifo_addr;
+    }
+    wait_kbc_sendready();
+    out8(PORT_KEYCMD, KEYCMD_SENDTO_MOUSE);
+    wait_kbc_sendready();
+    out8(PORT_KEYDAT, MOUSECMD_ENABLE);
+}
+
 const MOUSE_OFFSET: u32 = 512;
 
 pub extern "C" fn inthandler2c() {
     out8(PIC1_OCW2, 0x64); // IRQ-12受付完了をPIC1に通知
     out8(PIC0_OCW2, 0x62); // IRQ-02受付完了をPIC0に通知
     let data = in8(PORT_KEYDAT);
-    FIFO_BUF.lock().put(data as u32 + MOUSE_OFFSET).unwrap();
+    let fifo = unsafe { &mut *(MOUSE_FIFO_ADDR as *mut Fifo) };
+    fifo.put(data as u32 + MOUSE_OFFSET).unwrap();
 }

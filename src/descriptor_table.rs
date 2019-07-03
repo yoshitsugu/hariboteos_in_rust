@@ -7,7 +7,7 @@ use asm::{load_gdtr, load_idtr};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
-struct SegmentDescriptor {
+pub struct SegmentDescriptor {
     limit_low: u16,
     base_low: u16,
     base_mid: u8,
@@ -17,7 +17,7 @@ struct SegmentDescriptor {
 }
 
 impl SegmentDescriptor {
-    fn new(mut limit: u32, base: i32, mut ar: i32) -> SegmentDescriptor {
+    pub fn new(mut limit: u32, base: i32, mut ar: i32) -> SegmentDescriptor {
         if limit > 0xfffff {
             ar |= 0x8000;
             limit /= 0x1000;
@@ -55,12 +55,13 @@ impl GateDescriptor {
     }
 }
 
-const ADR_GDT: i32 = 0x00270000;
+pub const ADR_GDT: i32 = 0x00270000;
 const LIMIT_GDT: i32 = 0x0000ffff;
 const ADR_IDT: i32 = 0x0026f800;
 const LIMIT_IDT: i32 = 0x000007ff;
 const ADR_BOTPAK: i32 = 0x00280000;
 const LIMIT_BOTPAK: u32 = 0x0007ffff;
+pub const AR_TSS32: i32 = 0x0089;
 const AR_INTGATE32: i32 = 0x008e;
 const AR_DATA32_RW: i32 = 0x4092;
 const AR_CODE32_ER: i32 = 0x409a;

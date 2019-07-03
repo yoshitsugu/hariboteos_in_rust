@@ -1,6 +1,4 @@
 use core::cell::{Cell, RefCell};
-use lazy_static::lazy_static;
-use spin::Mutex;
 
 pub struct Fifo {
     pub buf: RefCell<[u32; 128]>,
@@ -58,8 +56,4 @@ impl Fifo {
     pub fn status(&self) -> u32 {
         self.size - self.free.get()
     }
-}
-
-lazy_static! {
-    pub static ref FIFO_BUF: Mutex<Fifo> = Mutex::new(Fifo::new(128));
 }

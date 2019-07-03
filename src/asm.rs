@@ -88,6 +88,19 @@ pub fn load_idtr(limit: i32, adr: i32) {
     }
 }
 
+pub fn load_tr(adr: i32) {
+    unsafe {
+        asm!("LTR [$0]" :: "r"(&adr) : "memory" : "intel");
+    }
+}
+
+#[naked]
+pub fn taskswitch(adr: i32) {
+    unsafe {
+        asm!("JMP $0,0" :: "i"(adr) :: "intel");
+    }
+}
+
 #[macro_export]
 macro_rules! handler {
     ($name: ident) => {{

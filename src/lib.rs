@@ -3,6 +3,7 @@
 #![feature(start)]
 #![feature(naked_functions)]
 
+use core::default::Default;
 use core::panic::PanicInfo;
 
 mod asm;
@@ -15,40 +16,46 @@ mod memory;
 mod mouse;
 mod sheet;
 mod timer;
+mod tss;
 mod vga;
 
 #[no_mangle]
 #[start]
 pub extern "C" fn haribote_os() {
-    use asm::{cli, sti, stihlt};
-    use fifo::FIFO_BUF;
-    use interrupt::enable_mouse;
+    use asm::{cli, load_tr, sti, stihlt, taskswitch};
+    use descriptor_table::{SegmentDescriptor, ADR_GDT, AR_TSS32};
+    use fifo::Fifo;
     use keyboard::{KEYBOARD_OFFSET, KEYTABLE};
     use memory::{MemMan, MEMMAN_ADDR};
     use mouse::{Mouse, MouseDec, MOUSE_CURSOR_HEIGHT, MOUSE_CURSOR_WIDTH};
     use sheet::SheetManager;
     use timer::TIMER_MANAGER;
+    use tss::TSS;
     use vga::{
         boxfill, init_palette, init_screen, make_textbox, make_window, Color, ScreenWriter,
         SCREEN_HEIGHT, SCREEN_WIDTH,
     };
 
+    let fifo = Fifo::new(128);
+    let fifo_addr = &fifo as *const Fifo as usize;
+
     descriptor_table::init();
     interrupt::init();
     sti();
     interrupt::allow_input();
+    keyboard::init_keyboard(fifo_addr);
     timer::init_pit();
     init_palette();
-    enable_mouse();
+    mouse::enable_mouse(fifo_addr);
 
     let timer_index1 = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER.lock().init_timer(timer_index1, 10);
+    TIMER_MANAGER.lock().init_timer(timer_index1, fifo_addr, 10);
     TIMER_MANAGER.lock().set_time(timer_index1, 1000);
     let timer_index2 = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER.lock().init_timer(timer_index2, 3);
+    TIMER_MANAGER.lock().init_timer(timer_index2, fifo_addr, 3);
     TIMER_MANAGER.lock().set_time(timer_index2, 300);
     let timer_index3 = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER.lock().init_timer(timer_index3, 1);
+    TIMER_MANAGER.lock().init_timer(timer_index3, fifo_addr, 1);
     TIMER_MANAGER.lock().set_time(timer_index3, 50);
 
     let memtotal = memory::memtest(0x00400000, 0xbfffffff);
@@ -118,6 +125,35 @@ pub extern "C" fn haribote_os() {
         memman.total() / 1024
     );
 
+    let mut tss_a: TSS = Default::default();
+    tss_a.ldtr = 0;
+    tss_a.iomap = 0x40000000;
+    let mut tss_b: TSS = Default::default();
+    tss_b.ldtr = 0;
+    tss_b.iomap = 0x40000000;
+    let gdt = unsafe { &mut *((ADR_GDT + 3 * 8) as *mut SegmentDescriptor) };
+    *gdt = SegmentDescriptor::new(103, &tss_a as *const TSS as i32, AR_TSS32);
+    let gdt = unsafe { &mut *((ADR_GDT + 4 * 8) as *mut SegmentDescriptor) };
+    *gdt = SegmentDescriptor::new(103, &tss_b as *const TSS as i32, AR_TSS32);
+    load_tr(3 * 8);
+    let task_b_esp = memman.alloc_4k(64 * 1024).unwrap() + 64 * 1024;
+    tss_b.eip = task_b_main as i32;
+    tss_b.eflags = 0x00000202; /* IF = 1; */
+    tss_b.eax = 0;
+    tss_b.ecx = 0;
+    tss_b.edx = 0;
+    tss_b.ebx = 0;
+    tss_b.esp = task_b_esp as i32;
+    tss_b.ebp = 0;
+    tss_b.esi = 0;
+    tss_b.edi = 0;
+    tss_b.es = 1 * 8;
+    tss_b.cs = 2 * 8;
+    tss_b.ss = 1 * 8;
+    tss_b.ds = 1 * 8;
+    tss_b.fs = 1 * 8;
+    tss_b.gs = 1 * 8;
+
     // カーソル
     let min_cursor_x = 8;
     let max_cursor_x = 144;
@@ -126,8 +162,8 @@ pub extern "C" fn haribote_os() {
 
     loop {
         cli();
-        if FIFO_BUF.lock().status() != 0 {
-            let i = FIFO_BUF.lock().get().unwrap();
+        if fifo.status() != 0 {
+            let i = fifo.get().unwrap();
             sti();
             if KEYBOARD_OFFSET <= i && i <= 511 {
                 let key = i - KEYBOARD_OFFSET;
@@ -215,8 +251,11 @@ pub extern "C" fn haribote_os() {
                         mouse_dec.x.get(),
                         mouse_dec.y.get(),
                     );
-                    let (new_x, new_y) =
-                        sheet_manager.get_new_point(shi_mouse, mouse_dec.x.get(), mouse_dec.y.get());
+                    let (new_x, new_y) = sheet_manager.get_new_point(
+                        shi_mouse,
+                        mouse_dec.x.get(),
+                        mouse_dec.y.get(),
+                    );
                     sheet_manager.slide(shi_mouse, new_x, new_y);
                     // 左クリックをおしていた場合
                     if (mouse_dec.btn.get() & 0x01) != 0 {
@@ -237,6 +276,7 @@ pub extern "C" fn haribote_os() {
                     7,
                     "10[sec]"
                 );
+                taskswitch(4 * 8);
             } else if i == 3 {
                 write_with_bg!(
                     sheet_manager,
@@ -253,10 +293,10 @@ pub extern "C" fn haribote_os() {
                 );
             } else {
                 if i != 0 {
-                    TIMER_MANAGER.lock().init_timer(timer_index3, 0);
+                    TIMER_MANAGER.lock().init_timer(timer_index3, fifo_addr, 0);
                     cursor_c = Color::Black;
                 } else {
-                    TIMER_MANAGER.lock().init_timer(timer_index3, 1);
+                    TIMER_MANAGER.lock().init_timer(timer_index3, fifo_addr, 1);
                     cursor_c = Color::White;
                 }
                 TIMER_MANAGER.lock().set_time(timer_index3, 50);
@@ -265,6 +305,32 @@ pub extern "C" fn haribote_os() {
             }
         } else {
             stihlt();
+        }
+    }
+}
+
+pub extern "C" fn task_b_main() {
+    use asm::{cli, hlt, sti, taskswitch};
+    use fifo::Fifo;
+    use timer::TIMER_MANAGER;
+
+    let fifo = Fifo::new(128);
+    let fifo_addr = &fifo as *const Fifo as usize;
+
+    let timer_index_b = TIMER_MANAGER.lock().alloc().unwrap();
+    TIMER_MANAGER.lock().init_timer(timer_index_b, fifo_addr, 1);
+    TIMER_MANAGER.lock().set_time(timer_index_b, 500);
+    loop {
+        cli();
+        if fifo.status() == 0 {
+            sti();
+            hlt();
+        } else {
+            let i = fifo.get().unwrap();
+            sti();
+            if i == 1 {
+                taskswitch(3 * 8);
+            }
         }
     }
 }
