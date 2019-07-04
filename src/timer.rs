@@ -141,6 +141,8 @@ lazy_static! {
     pub static ref TIMER_MANAGER: Mutex<TimerManager> = Mutex::new(TimerManager::new());
 }
 
+pub static mut NEED_SWITCH: bool = false;
+
 pub extern "C" fn inthandler20() {
     out8(PIC0_OCW2, 0x60); // IRQ-00受付完了をPICに通知
     let mut tm = TIMER_MANAGER.lock();
@@ -149,22 +151,27 @@ pub extern "C" fn inthandler20() {
         return;
     }
     let mut timer_index = tm.t0;
+    let mut need_taskswitch = false;
     loop {
-        if timer_index.is_none() {
-            return;
-        }
         let t_index = timer_index.unwrap();
         if tm.timers_data[t_index].timeout > tm.count {
             break;
         }
         let mut timer = &mut tm.timers_data[t_index];
         timer.flag = TimerFlag::USED;
-        let fifo = unsafe { &mut *(timer.fifo_addr as *mut Fifo) };
-        fifo.put(timer.data as u32).unwrap();
+        if t_index != unsafe { crate::mt::MT_TIMER_INDEX } {
+            let fifo = unsafe { &mut *(timer.fifo_addr as *mut Fifo) };
+            fifo.put(timer.data as u32).unwrap();
+        } else {
+            need_taskswitch = true;
+        }
         timer_index = timer.next;
     }
     tm.t0 = timer_index;
     if let Some(t_index) = timer_index {
         tm.next_tick = tm.timers_data[t_index].timeout;
+    }
+    if need_taskswitch {
+        unsafe { NEED_SWITCH = true };
     }
 }

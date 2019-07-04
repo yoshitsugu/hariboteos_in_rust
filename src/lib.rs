@@ -14,9 +14,9 @@ mod interrupt;
 mod keyboard;
 mod memory;
 mod mouse;
+mod mt;
 mod sheet;
 mod timer;
-mod tss;
 mod vga;
 
 static mut SHEET_BG_ADDR: usize = 0;
@@ -25,18 +25,18 @@ static mut SHEET_MANAGER_ADDR: usize = 0;
 #[no_mangle]
 #[start]
 pub extern "C" fn haribote_os() {
-    use asm::{cli, farjmp, load_tr, sti, stihlt};
+    use asm::{cli, load_tr, sti, stihlt};
     use descriptor_table::{SegmentDescriptor, ADR_GDT, AR_TSS32};
     use fifo::Fifo;
     use keyboard::{KEYBOARD_OFFSET, KEYTABLE};
     use memory::{MemMan, MEMMAN_ADDR};
     use mouse::{Mouse, MouseDec, MOUSE_CURSOR_HEIGHT, MOUSE_CURSOR_WIDTH};
+    use mt::TSS;
     use sheet::SheetManager;
     use timer::TIMER_MANAGER;
-    use tss::TSS;
     use vga::{
-        boxfill, init_palette, init_screen, make_textbox, make_window, Color, ScreenWriter,
-        SCREEN_HEIGHT, SCREEN_WIDTH,
+        boxfill, init_palette, init_screen, make_textbox, make_window, Color, SCREEN_HEIGHT,
+        SCREEN_WIDTH,
     };
 
     let fifo = Fifo::new(128);
@@ -51,11 +51,6 @@ pub extern "C" fn haribote_os() {
     init_palette();
     mouse::enable_mouse(fifo_addr);
 
-    let timer_index_ts = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER
-        .lock()
-        .init_timer(timer_index_ts, fifo_addr, 2);
-    TIMER_MANAGER.lock().set_time(timer_index_ts, 2);
     let timer_index1 = TIMER_MANAGER.lock().alloc().unwrap();
     TIMER_MANAGER.lock().init_timer(timer_index1, fifo_addr, 10);
     TIMER_MANAGER.lock().set_time(timer_index1, 1000);
@@ -164,6 +159,7 @@ pub extern "C" fn haribote_os() {
     tss_b.ds = 1 * 8;
     tss_b.fs = 1 * 8;
     tss_b.gs = 1 * 8;
+    mt::mt_init();
 
     // カーソル
     let min_cursor_x = 8;
@@ -176,10 +172,7 @@ pub extern "C" fn haribote_os() {
         if fifo.status() != 0 {
             let i = fifo.get().unwrap();
             sti();
-            if i == 2 {
-                farjmp(0, 4 * 8);
-                TIMER_MANAGER.lock().set_time(timer_index_ts, 2);
-            } else if KEYBOARD_OFFSET <= i && i <= 511 {
+            if KEYBOARD_OFFSET <= i && i <= 511 {
                 let key = i - KEYBOARD_OFFSET;
                 write_with_bg!(
                     sheet_manager,
@@ -317,7 +310,7 @@ pub extern "C" fn haribote_os() {
 }
 
 pub extern "C" fn task_b_main() {
-    use asm::{cli, farjmp, hlt, sti};
+    use asm::{cli, hlt, sti};
     use fifo::Fifo;
     use sheet::SheetManager;
     use timer::TIMER_MANAGER;
@@ -330,17 +323,11 @@ pub extern "C" fn task_b_main() {
     let sheet_manager_addr = unsafe { SHEET_MANAGER_ADDR };
     let sheet_manager = unsafe { &mut *(sheet_manager_addr as *mut SheetManager) };
 
-    let timer_index_ts = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER
-        .lock()
-        .init_timer(timer_index_ts, fifo_addr, 2);
-    TIMER_MANAGER.lock().set_time(timer_index_ts, 2);
     let timer_index_sp = TIMER_MANAGER.lock().alloc().unwrap();
     TIMER_MANAGER
         .lock()
         .init_timer(timer_index_sp, fifo_addr, 8);
     TIMER_MANAGER.lock().set_time(timer_index_sp, 800);
-
     let mut count = 0;
     loop {
         count += 1;
@@ -350,10 +337,7 @@ pub extern "C" fn task_b_main() {
         } else {
             let i = fifo.get().unwrap();
             sti();
-            if i == 2 {
-                farjmp(0, 3 * 8);
-                TIMER_MANAGER.lock().set_time(timer_index_ts, 2);
-            } else if i == 8 {
+            if i == 8 {
                 write_with_bg!(
                     sheet_manager,
                     shi_bg,
@@ -367,6 +351,7 @@ pub extern "C" fn task_b_main() {
                     "{:>11}",
                     count
                 );
+                hlt();
             }
         }
     }

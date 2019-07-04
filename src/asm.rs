@@ -94,10 +94,24 @@ pub fn load_tr(adr: i32) {
     }
 }
 
+// #[naked]
+// pub fn farjmp(eip: i32, cs: i32) {
+//     unsafe {
+//         asm!("LJMP $0,$1" :: "i"(cs), "i"(eip));
+//     }
+// }
+
+#[repr(C, packed)]
+struct Jump {
+    eip: i32,
+    cs: i32,
+}
+
 #[naked]
-pub fn farjmp(eip: i32, cs: i32) {
+#[no_mangle]
+pub extern "C" fn farjmp(eip: i32, cs: i32) {
     unsafe {
-        asm!("LJMP $0,$1" :: "i"(cs), "i"(eip));
+        asm!("LJMPL *($0)" :: "r"(&Jump {eip, cs}) :: "volatile");
     }
 }
 
@@ -106,6 +120,8 @@ macro_rules! handler {
     ($name: ident) => {{
         #[naked]
         pub extern "C" fn wrapper() {
+            use crate::timer::NEED_SWITCH;
+            use crate::mt::mt_taskswitch;
             unsafe {
                 asm!("PUSH ES
                       PUSH DS
@@ -116,6 +132,10 @@ macro_rules! handler {
                       MOV DS,AX
                       MOV ES,AX" : : : : "intel", "volatile");
                 asm!("CALL $0" : : "r"($name as extern "C" fn()) : : "intel");
+                if  NEED_SWITCH {
+                    NEED_SWITCH = false;
+                    mt_taskswitch();
+                }
                 asm!("POP EAX
                     POPAD
                     POP DS
