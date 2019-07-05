@@ -3,7 +3,6 @@
 #![feature(start)]
 #![feature(naked_functions)]
 
-use core::default::Default;
 use core::panic::PanicInfo;
 
 mod asm;
@@ -25,13 +24,12 @@ static mut SHEET_MANAGER_ADDR: usize = 0;
 #[no_mangle]
 #[start]
 pub extern "C" fn haribote_os() {
-    use asm::{cli, load_tr, sti, stihlt};
-    use descriptor_table::{SegmentDescriptor, ADR_GDT, AR_TSS32};
+    use asm::{cli, sti, stihlt};
     use fifo::Fifo;
     use keyboard::{KEYBOARD_OFFSET, KEYTABLE};
     use memory::{MemMan, MEMMAN_ADDR};
     use mouse::{Mouse, MouseDec, MOUSE_CURSOR_HEIGHT, MOUSE_CURSOR_WIDTH};
-    use mt::TSS;
+    use mt::{TaskManager, TASK_MANAGER_ADDR};
     use sheet::SheetManager;
     use timer::TIMER_MANAGER;
     use vga::{
@@ -131,35 +129,27 @@ pub extern "C" fn haribote_os() {
         memman.total() / 1024
     );
 
-    let mut tss_a: TSS = Default::default();
-    tss_a.ldtr = 0;
-    tss_a.iomap = 0x40000000;
-    let mut tss_b: TSS = Default::default();
-    tss_b.ldtr = 0;
-    tss_b.iomap = 0x40000000;
-    let gdt = unsafe { &mut *((ADR_GDT + 3 * 8) as *mut SegmentDescriptor) };
-    *gdt = SegmentDescriptor::new(103, &tss_a as *const TSS as i32, AR_TSS32);
-    let gdt = unsafe { &mut *((ADR_GDT + 4 * 8) as *mut SegmentDescriptor) };
-    *gdt = SegmentDescriptor::new(103, &tss_b as *const TSS as i32, AR_TSS32);
-    load_tr(3 * 8);
+    let task_manager_addr = memman
+        .alloc_4k(core::mem::size_of::<TaskManager>() as u32)
+        .unwrap();
+    unsafe {
+        TASK_MANAGER_ADDR = task_manager_addr as usize;
+    }
+    let task_manager = unsafe { &mut *(task_manager_addr as *mut TaskManager) };
+    *task_manager = TaskManager::new();
+    task_manager.init();
+    let task_b_index = task_manager.alloc().unwrap();
+    let mut task_b = &mut task_manager.tasks_data[task_b_index as usize];
     let task_b_esp = memman.alloc_4k(64 * 1024).unwrap() + 64 * 1024;
-    tss_b.eip = task_b_main as i32;
-    tss_b.eflags = 0x00000202; /* IF = 1; */
-    tss_b.eax = 0;
-    tss_b.ecx = 0;
-    tss_b.edx = 0;
-    tss_b.ebx = 0;
-    tss_b.esp = task_b_esp as i32;
-    tss_b.ebp = 0;
-    tss_b.esi = 0;
-    tss_b.edi = 0;
-    tss_b.es = 1 * 8;
-    tss_b.cs = 2 * 8;
-    tss_b.ss = 1 * 8;
-    tss_b.ds = 1 * 8;
-    tss_b.fs = 1 * 8;
-    tss_b.gs = 1 * 8;
-    mt::mt_init();
+    task_b.tss.esp = task_b_esp as i32;
+    task_b.tss.eip = task_b_main as i32;
+    task_b.tss.es = 1 * 8;
+    task_b.tss.cs = 2 * 8;
+    task_b.tss.ss = 1 * 8;
+    task_b.tss.ds = 1 * 8;
+    task_b.tss.fs = 1 * 8;
+    task_b.tss.gs = 1 * 8;
+    task_manager.run(task_b_index);
 
     // カーソル
     let min_cursor_x = 8;

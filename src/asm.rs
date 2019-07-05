@@ -121,7 +121,7 @@ macro_rules! handler {
         #[naked]
         pub extern "C" fn wrapper() {
             use crate::timer::NEED_SWITCH;
-            use crate::mt::mt_taskswitch;
+            use crate::mt::{TaskManager, TASK_MANAGER_ADDR};
             unsafe {
                 asm!("PUSH ES
                       PUSH DS
@@ -134,7 +134,8 @@ macro_rules! handler {
                 asm!("CALL $0" : : "r"($name as extern "C" fn()) : : "intel");
                 if  NEED_SWITCH {
                     NEED_SWITCH = false;
-                    mt_taskswitch();
+                    let task_manager = &mut *(TASK_MANAGER_ADDR as *mut TaskManager);
+                    task_manager.switch();
                 }
                 asm!("POP EAX
                     POPAD
