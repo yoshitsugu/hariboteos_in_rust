@@ -7,6 +7,7 @@ pub struct Fifo {
     pub free: Cell<u32>,
     pub flags: Cell<u32>,
     pub size: u32,
+    pub task_index: Option<usize>,
 }
 
 const FLAGS_OVERRUN: u32 = 0x0001;
@@ -20,10 +21,13 @@ impl Fifo {
             flags: Cell::new(0),
             size: size,
             buf: RefCell::new([0; 128]),
+            task_index: None,
         }
     }
 
     pub fn put(&self, data: u32) -> Result<(), &'static str> {
+        use crate::mt::{TASK_MANAGER_ADDR, TaskFlag, TaskManager};
+
         if self.free.get() == 0 {
             self.flags.set(self.flags.get() | FLAGS_OVERRUN);
             return Err("FLAGS_OVERRUN ERROR");
@@ -37,6 +41,12 @@ impl Fifo {
             self.p.set(0);
         }
         self.free.set(self.free.get() - 1);
+        if let Some(task_index) = self.task_index {
+            let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+            if task_manager.tasks_data[task_index].flag != TaskFlag::RUNNING {
+                task_manager.run(task_index);
+            }
+        }
         return Ok(());
     }
 

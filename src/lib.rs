@@ -137,7 +137,12 @@ pub extern "C" fn haribote_os() {
     }
     let task_manager = unsafe { &mut *(task_manager_addr as *mut TaskManager) };
     *task_manager = TaskManager::new();
-    task_manager.init();
+    let task_a_index = task_manager.init().unwrap();
+    {
+        let mut fifo_mut = unsafe { &mut *(fifo_addr as *mut Fifo) };
+        fifo_mut.task_index = Some(task_a_index);
+    }
+
     let task_b_index = task_manager.alloc().unwrap();
     let mut task_b = &mut task_manager.tasks_data[task_b_index as usize];
     let task_b_esp = memman.alloc_4k(64 * 1024).unwrap() + 64 * 1024;
@@ -294,7 +299,8 @@ pub extern "C" fn haribote_os() {
                 sheet_manager.refresh(shi_win, cursor_x as i32, 28, cursor_x as i32 + 8, 44)
             }
         } else {
-            stihlt();
+            task_manager.sleep(task_a_index);
+            sti();
         }
     }
 }

@@ -63,8 +63,8 @@ impl Task {
 }
 
 pub struct TaskManager {
-    pub running_count: i32,
-    pub now_running: i32,
+    pub running_count: usize,
+    pub now_running: usize,
     pub tasks: [usize; MAX_TASKS],
     pub tasks_data: [Task; MAX_TASKS],
 }
@@ -82,7 +82,7 @@ impl TaskManager {
         }
     }
 
-    pub fn init(&mut self) {
+    pub fn init(&mut self) -> Result<usize, &'static str> {
         for i in 0..MAX_TASKS {
             let mut task = &mut self.tasks_data[i];
             task.select = (TASK_GDT0 + i as i32) * 8;
@@ -90,7 +90,7 @@ impl TaskManager {
                 unsafe { &mut *((ADR_GDT + (TASK_GDT0 + i as i32) * 8) as *mut SegmentDescriptor) };
             *gdt = SegmentDescriptor::new(103, &(task.tss) as *const TSS as i32, AR_TSS32);
         }
-        let task_index = self.alloc().unwrap();
+        let task_index = self.alloc()?;
 
         let mut task = &mut self.tasks_data[task_index];
         task.flag = TaskFlag::RUNNING;
@@ -103,6 +103,7 @@ impl TaskManager {
         unsafe {
             MT_TIMER_INDEX = timer_index_ts;
         }
+        Ok(task_index)
     }
 
     pub fn alloc(&mut self) -> Result<usize, &'static str> {
@@ -121,7 +122,7 @@ impl TaskManager {
     pub fn run(&mut self, task_index: usize) {
         let mut task = &mut self.tasks_data[task_index];
         task.flag = TaskFlag::RUNNING;
-        self.tasks[self.running_count as usize] = task_index;
+        self.tasks[self.running_count] = task_index;
         self.running_count += 1;
     }
 
@@ -133,10 +134,42 @@ impl TaskManager {
                 self.now_running = 0;
             }
 
-            crate::asm::farjmp(
-                0,
-                self.tasks_data[self.tasks[self.now_running as usize]].select,
-            );
+            crate::asm::farjmp(0, self.tasks_data[self.tasks[self.now_running]].select);
+        }
+    }
+
+    pub fn sleep(&mut self, task_index: usize) {
+        let mut need_taskswitch = false;
+        let mut task_order: usize = 0;
+        let task = self.tasks_data[task_index];
+        if task.flag == TaskFlag::RUNNING {
+            if task_index == self.tasks[self.now_running] {
+                // スリープする対象と今動いているタスクが同じなのでタスクスイッチが必要
+                need_taskswitch = true;
+            }
+            for i in 0..self.running_count {
+                task_order = i;
+                if self.tasks[i] == task_index {
+                    break;
+                }
+            }
+            self.running_count -= 1;
+            if task_order < self.now_running {
+                self.now_running -= 1;
+            }
+            for i in task_order..self.running_count {
+                self.tasks[i] = self.tasks[i + 1];
+            }
+            {
+                let mut task_mt = &mut self.tasks_data[task_index];
+                task_mt.flag = TaskFlag::USED;
+            }
+            if need_taskswitch {
+                if self.now_running >= self.running_count {
+                    self.now_running = 0;
+                }
+                crate::asm::farjmp(0, self.tasks_data[self.tasks[self.now_running]].select);
+            }
         }
     }
 }
