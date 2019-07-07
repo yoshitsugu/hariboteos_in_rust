@@ -45,7 +45,7 @@ impl Fifo {
             let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
             let task = task_manager.tasks_data[task_index];
             if task.flag != TaskFlag::RUNNING {
-                task_manager.run(task_index, task.priority);
+                task_manager.run(task_index, -1, 0);
             }
         }
         return Ok(());

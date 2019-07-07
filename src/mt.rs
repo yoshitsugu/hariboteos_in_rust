@@ -1,10 +1,12 @@
 use core::default::Default;
 
-use crate::asm::load_tr;
+use crate::asm::{farjmp, load_tr};
 use crate::descriptor_table::{SegmentDescriptor, ADR_GDT, AR_TSS32};
 use crate::timer::TIMER_MANAGER;
 
 const MAX_TASKS: usize = 1000;
+const MAX_TASKS_LV: usize = 100;
+const MAX_TASKLEVELS: usize = 10;
 const TASK_GDT0: i32 = 3;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -42,6 +44,7 @@ pub struct TSS {
 pub struct Task {
     pub select: i32,
     pub flag: TaskFlag,
+    pub level: usize,
     pub priority: i32,
     pub tss: TSS,
 }
@@ -58,16 +61,34 @@ impl Task {
         Task {
             select: 0,
             flag: TaskFlag::AVAILABLE,
+            level: 0,
             priority: 2,
             tss: Default::default(),
         }
     }
 }
 
-pub struct TaskManager {
+#[derive(Clone, Copy)]
+pub struct TaskLevel {
     pub running_count: usize,
     pub now_running: usize,
-    pub tasks: [usize; MAX_TASKS],
+    pub tasks: [usize; MAX_TASKS_LV],
+}
+
+impl TaskLevel {
+    pub fn new() -> TaskLevel {
+        TaskLevel {
+            running_count: 0,
+            now_running: 0,
+            tasks: [0; MAX_TASKS_LV],
+        }
+    }
+}
+
+pub struct TaskManager {
+    pub now_lv: usize,
+    pub lv_change: bool,
+    pub level: [TaskLevel; MAX_TASKLEVELS],
     pub tasks_data: [Task; MAX_TASKS],
 }
 
@@ -77,11 +98,63 @@ pub static mut MT_TIMER_INDEX: usize = 1001;
 impl TaskManager {
     pub fn new() -> TaskManager {
         TaskManager {
-            running_count: 0,
-            now_running: 0,
-            tasks: [0; MAX_TASKS],
+            now_lv: 0,
+            lv_change: false,
+            level: [TaskLevel::new(); MAX_TASKLEVELS],
             tasks_data: [Task::new(); MAX_TASKS],
         }
+    }
+
+    pub fn now_index(&self) -> usize {
+        let tl = self.level[self.now_lv];
+        tl.tasks[tl.now_running]
+    }
+
+    pub fn add_task(&mut self, task_index: usize) {
+        {
+            let mut lv = &mut self.level[self.tasks_data[task_index].level];
+            lv.tasks[lv.running_count] = task_index;
+            lv.running_count += 1;
+        }
+        {
+            let mut task = &mut self.tasks_data[task_index];
+            task.flag = TaskFlag::RUNNING;
+        }
+    }
+
+    pub fn remove_task(&mut self, task_index: usize) {
+        let mut lv = &mut self.level[self.tasks_data[task_index].level];
+        let mut task_order = 0;
+        for i in 0..lv.running_count {
+            task_order = i;
+            if lv.tasks[i] == task_index {
+                break;
+            }
+        }
+        lv.running_count -= 1;
+        if task_order < lv.now_running {
+            lv.now_running -= 1;
+        }
+        if lv.now_running >= lv.running_count {
+            lv.now_running = 0;
+        }
+        let mut task = &mut self.tasks_data[task_index];
+        task.flag = TaskFlag::USED;
+        for i in task_order..lv.running_count {
+            lv.tasks[i] = lv.tasks[i + 1];
+        }
+    }
+
+    pub fn switchsub(&mut self) {
+        let mut now_lv = 0;
+        for i in 0..MAX_TASKLEVELS {
+            now_lv = i;
+            if self.level[i].running_count > 0 {
+                break;
+            }
+        }
+        self.now_lv = now_lv;
+        self.lv_change = false;
     }
 
     pub fn init(&mut self) -> Result<usize, &'static str> {
@@ -93,15 +166,20 @@ impl TaskManager {
             *gdt = SegmentDescriptor::new(103, &(task.tss) as *const TSS as i32, AR_TSS32);
         }
         let task_index = self.alloc()?;
-
-        let mut task = &mut self.tasks_data[task_index];
-        task.flag = TaskFlag::RUNNING;
-        self.running_count = 1;
-        self.now_running = 0;
-        self.tasks[0] = task_index;
+        {
+            let mut task = &mut self.tasks_data[task_index];
+            task.flag = TaskFlag::RUNNING;
+            task.priority = 2;
+            task.level = 0;
+        }
+        self.add_task(task_index);
+        self.switchsub();
+        let task = self.tasks_data[task_index];
         load_tr(task.select);
         let timer_index_ts = TIMER_MANAGER.lock().alloc().unwrap();
-        TIMER_MANAGER.lock().set_time(timer_index_ts, 2);
+        TIMER_MANAGER
+            .lock()
+            .set_time(timer_index_ts, task.priority as u32);
         unsafe {
             MT_TIMER_INDEX = timer_index_ts;
         }
@@ -121,63 +199,62 @@ impl TaskManager {
         return Err("CANNOT ALLOCATE TASK");
     }
 
-    pub fn run(&mut self, task_index: usize, priority: i32) {
-        let mut task = &mut self.tasks_data[task_index];
+    pub fn run(&mut self, task_index: usize, level_i32: i32, priority: i32) {
+        let task = self.tasks_data[task_index];
+        let level: usize;
+        if level_i32 < 0 {
+            level = task.level;
+        } else {
+            level = level_i32 as usize;
+        }
         if priority > 0 {
+            let mut task = &mut self.tasks_data[task_index];
             task.priority = priority;
         }
-        if task.flag != TaskFlag::RUNNING {
-            task.flag = TaskFlag::RUNNING;
-            self.tasks[self.running_count] = task_index;
-            self.running_count += 1;
+        if task.flag == TaskFlag::RUNNING && task.level != level {
+            self.remove_task(task_index);
         }
+        // フラグがかわる可能性があるのでtaskをとりなおし
+        if self.tasks_data[task_index].flag != TaskFlag::RUNNING {
+            let mut task = &mut self.tasks_data[task_index];
+            task.level = level;
+            self.add_task(task_index);
+        }
+        self.lv_change = true;
     }
 
     pub fn switch(&mut self) {
-        self.now_running += 1;
-        if self.now_running == self.running_count {
-            self.now_running = 0;
+        let mut lv = &mut self.level[self.now_lv];
+        let now_task_index = lv.tasks[lv.now_running];
+        lv.now_running += 1;
+        if lv.now_running == lv.running_count {
+            lv.now_running = 0;
         }
-        let task = self.tasks_data[self.tasks[self.now_running]];
+        if self.lv_change {
+            self.switchsub();
+            lv = &mut self.level[self.now_lv];
+        }
+        let new_task_index = lv.tasks[lv.now_running];
+        let new_task = self.tasks_data[new_task_index];
         TIMER_MANAGER
             .lock()
-            .set_time(unsafe { MT_TIMER_INDEX }, task.priority as u32);
-        if self.running_count >= 2 {
-            crate::asm::farjmp(0, task.select);
+            .set_time(unsafe { MT_TIMER_INDEX }, new_task.priority as u32);
+        if new_task_index != now_task_index {
+            farjmp(0, new_task.select);
         }
     }
 
     pub fn sleep(&mut self, task_index: usize) {
-        let mut need_taskswitch = false;
-        let mut task_order: usize = 0;
         let task = self.tasks_data[task_index];
+
         if task.flag == TaskFlag::RUNNING {
-            if task_index == self.tasks[self.now_running] {
+            let now_index = self.now_index();
+            self.remove_task(task_index);
+            if task_index == now_index {
                 // スリープする対象と今動いているタスクが同じなのでタスクスイッチが必要
-                need_taskswitch = true;
-            }
-            for i in 0..self.running_count {
-                task_order = i;
-                if self.tasks[i] == task_index {
-                    break;
-                }
-            }
-            self.running_count -= 1;
-            if task_order < self.now_running {
-                self.now_running -= 1;
-            }
-            for i in task_order..self.running_count {
-                self.tasks[i] = self.tasks[i + 1];
-            }
-            {
-                let mut task_mt = &mut self.tasks_data[task_index];
-                task_mt.flag = TaskFlag::USED;
-            }
-            if need_taskswitch {
-                if self.now_running >= self.running_count {
-                    self.now_running = 0;
-                }
-                crate::asm::farjmp(0, self.tasks_data[self.tasks[self.now_running]].select);
+                self.switchsub();
+                let now_task = self.tasks_data[self.now_index()];
+                farjmp(0, now_task.select);
             }
         }
     }

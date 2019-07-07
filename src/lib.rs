@@ -128,6 +128,7 @@ pub extern "C" fn haribote_os() {
         let mut fifo_mut = unsafe { &mut *(fifo_addr as *mut Fifo) };
         fifo_mut.task_index = Some(task_a_index);
     }
+    task_manager.run(task_a_index, 1, 2);
 
     let mut sheet_win_b: [usize; 3] = [0; 3];
     let mut task_b: [usize; 3] = [0; 3];
@@ -179,7 +180,7 @@ pub extern "C" fn haribote_os() {
         // 第1引数にsheet_win_b[i]を読みこみ
         let ptr = unsafe { &mut *((task_b_mut.tss.esp + 4) as *mut usize) };
         *ptr = sheet_win_b[i];
-        task_manager.run(task_b[i], (i + 1) as i32);
+        task_manager.run(task_b[i], 2, (i + 1) as i32);
     }
 
     sheet_manager.slide(shi_mouse, mx, my);
@@ -322,7 +323,7 @@ pub extern "C" fn task_b_main(sheet_win: usize) {
     use fifo::Fifo;
     use sheet::SheetManager;
     use timer::TIMER_MANAGER;
-    use vga::{Color, SCREEN_HEIGHT, SCREEN_WIDTH};
+    use vga::Color;
 
     let fifo = Fifo::new(128);
     let fifo_addr = &fifo as *const Fifo as usize;
@@ -335,7 +336,6 @@ pub extern "C" fn task_b_main(sheet_win: usize) {
         .lock()
         .init_timer(timer_index_sp, fifo_addr, 8);
     TIMER_MANAGER.lock().set_time(timer_index_sp, 800);
-    let count0 = 0;
     let mut count = 0;
     loop {
         count += 1;
