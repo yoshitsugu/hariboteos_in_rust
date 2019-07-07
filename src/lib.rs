@@ -4,7 +4,6 @@
 #![feature(naked_functions)]
 
 use core::panic::PanicInfo;
-use lazy_static::lazy_static;
 
 mod asm;
 mod descriptor_table;
@@ -180,7 +179,7 @@ pub extern "C" fn haribote_os() {
         // 第1引数にsheet_win_b[i]を読みこみ
         let ptr = unsafe { &mut *((task_b_mut.tss.esp + 4) as *mut usize) };
         *ptr = sheet_win_b[i];
-        task_manager.run(task_b[i]);
+        task_manager.run(task_b[i], (i + 1) as i32);
     }
 
     sheet_manager.slide(shi_mouse, mx, my);
@@ -336,6 +335,7 @@ pub extern "C" fn task_b_main(sheet_win: usize) {
         .lock()
         .init_timer(timer_index_sp, fifo_addr, 8);
     TIMER_MANAGER.lock().set_time(timer_index_sp, 800);
+    let count0 = 0;
     let mut count = 0;
     loop {
         count += 1;
@@ -359,7 +359,6 @@ pub extern "C" fn task_b_main(sheet_win: usize) {
                     "{:>11}",
                     count
                 );
-                hlt();
             }
         }
     }

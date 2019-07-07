@@ -42,6 +42,7 @@ pub struct TSS {
 pub struct Task {
     pub select: i32,
     pub flag: TaskFlag,
+    pub priority: i32,
     pub tss: TSS,
 }
 
@@ -57,6 +58,7 @@ impl Task {
         Task {
             select: 0,
             flag: TaskFlag::AVAILABLE,
+            priority: 2,
             tss: Default::default(),
         }
     }
@@ -119,22 +121,29 @@ impl TaskManager {
         return Err("CANNOT ALLOCATE TASK");
     }
 
-    pub fn run(&mut self, task_index: usize) {
+    pub fn run(&mut self, task_index: usize, priority: i32) {
         let mut task = &mut self.tasks_data[task_index];
-        task.flag = TaskFlag::RUNNING;
-        self.tasks[self.running_count] = task_index;
-        self.running_count += 1;
+        if priority > 0 {
+            task.priority = priority;
+        }
+        if task.flag != TaskFlag::RUNNING {
+            task.flag = TaskFlag::RUNNING;
+            self.tasks[self.running_count] = task_index;
+            self.running_count += 1;
+        }
     }
 
     pub fn switch(&mut self) {
-        TIMER_MANAGER.lock().set_time(unsafe { MT_TIMER_INDEX }, 2);
+        self.now_running += 1;
+        if self.now_running == self.running_count {
+            self.now_running = 0;
+        }
+        let task = self.tasks_data[self.tasks[self.now_running]];
+        TIMER_MANAGER
+            .lock()
+            .set_time(unsafe { MT_TIMER_INDEX }, task.priority as u32);
         if self.running_count >= 2 {
-            self.now_running += 1;
-            if self.now_running == self.running_count {
-                self.now_running = 0;
-            }
-
-            crate::asm::farjmp(0, self.tasks_data[self.tasks[self.now_running]].select);
+            crate::asm::farjmp(0, task.select);
         }
     }
 
