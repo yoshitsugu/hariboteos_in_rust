@@ -26,7 +26,7 @@ impl Fifo {
     }
 
     pub fn put(&self, data: u32) -> Result<(), &'static str> {
-        use crate::mt::{TASK_MANAGER_ADDR, TaskFlag, TaskManager};
+        use crate::mt::{TaskFlag, TaskManager, TASK_MANAGER_ADDR};
 
         if self.free.get() == 0 {
             self.flags.set(self.flags.get() | FLAGS_OVERRUN);

@@ -4,6 +4,7 @@
 #![feature(naked_functions)]
 
 use core::panic::PanicInfo;
+use lazy_static::lazy_static;
 
 mod asm;
 mod descriptor_table;
@@ -18,7 +19,6 @@ mod sheet;
 mod timer;
 mod vga;
 
-static mut SHEET_BG_ADDR: usize = 0;
 static mut SHEET_MANAGER_ADDR: usize = 0;
 
 #[no_mangle]
@@ -49,12 +49,6 @@ pub extern "C" fn haribote_os() {
     init_palette();
     mouse::enable_mouse(fifo_addr);
 
-    let timer_index1 = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER.lock().init_timer(timer_index1, fifo_addr, 10);
-    TIMER_MANAGER.lock().set_time(timer_index1, 1000);
-    let timer_index2 = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER.lock().init_timer(timer_index2, fifo_addr, 3);
-    TIMER_MANAGER.lock().set_time(timer_index2, 300);
     let timer_index3 = TIMER_MANAGER.lock().alloc().unwrap();
     TIMER_MANAGER.lock().init_timer(timer_index3, fifo_addr, 1);
     TIMER_MANAGER.lock().set_time(timer_index3, 50);
@@ -77,19 +71,18 @@ pub extern "C" fn haribote_os() {
     let shi_bg = sheet_manager.alloc().unwrap();
     unsafe {
         SHEET_MANAGER_ADDR = sheet_manager_addr as usize;
-        SHEET_BG_ADDR = shi_bg;
     }
     let shi_mouse = sheet_manager.alloc().unwrap();
     let shi_win = sheet_manager.alloc().unwrap();
     let scrnx = *SCREEN_WIDTH as i32;
     let scrny = *SCREEN_HEIGHT as i32;
     let buf_bg_addr = memman.alloc_4k((scrnx * scrny) as u32).unwrap() as usize;
-    let buf_win_addr = memman.alloc_4k((160 * 52) as u32).unwrap() as usize;
+    let buf_win_addr = memman.alloc_4k((144 * 52) as u32).unwrap() as usize;
     let buf_mouse = [0u8; MOUSE_CURSOR_WIDTH * MOUSE_CURSOR_HEIGHT];
     let buf_mouse_addr =
         &buf_mouse as *const [u8; MOUSE_CURSOR_HEIGHT * MOUSE_CURSOR_WIDTH] as usize;
     sheet_manager.set_buf(shi_bg, buf_bg_addr, scrnx, scrny, None);
-    sheet_manager.set_buf(shi_win, buf_win_addr, 160, 52, None);
+    sheet_manager.set_buf(shi_win, buf_win_addr, 144, 52, None);
     sheet_manager.set_buf(
         shi_mouse,
         buf_mouse_addr,
@@ -105,14 +98,8 @@ pub extern "C" fn haribote_os() {
     let mouse = Mouse::new(buf_mouse_addr);
     mouse.render();
 
-    make_window(buf_win_addr, 160, 52, "window");
-    make_textbox(buf_win_addr, 160, 8, 28, 144, 16, Color::White);
-
-    sheet_manager.slide(shi_mouse, mx, my);
-    sheet_manager.slide(shi_win, 80, 72);
-    sheet_manager.updown(shi_bg, Some(0));
-    sheet_manager.updown(shi_win, Some(1));
-    sheet_manager.updown(shi_mouse, Some(2));
+    make_window(buf_win_addr, 144, 52, "window");
+    make_textbox(buf_win_addr, 144, 8, 28, 128, 16, Color::White);
 
     write_with_bg!(
         sheet_manager,
@@ -143,18 +130,70 @@ pub extern "C" fn haribote_os() {
         fifo_mut.task_index = Some(task_a_index);
     }
 
-    let task_b_index = task_manager.alloc().unwrap();
-    let mut task_b = &mut task_manager.tasks_data[task_b_index as usize];
-    let task_b_esp = memman.alloc_4k(64 * 1024).unwrap() + 64 * 1024;
-    task_b.tss.esp = task_b_esp as i32;
-    task_b.tss.eip = task_b_main as i32;
-    task_b.tss.es = 1 * 8;
-    task_b.tss.cs = 2 * 8;
-    task_b.tss.ss = 1 * 8;
-    task_b.tss.ds = 1 * 8;
-    task_b.tss.fs = 1 * 8;
-    task_b.tss.gs = 1 * 8;
-    task_manager.run(task_b_index);
+    let mut sheet_win_b: [usize; 3] = [0; 3];
+    let mut task_b: [usize; 3] = [0; 3];
+
+    const B_WIN_HEIGHT: usize = 52;
+    const B_WIN_WIDTH: usize = 144;
+
+    for i in 0..(3 as usize) {
+        sheet_win_b[i] = sheet_manager.alloc().unwrap();
+        let buf_win_b_addr = memman
+            .alloc_4k((B_WIN_WIDTH * B_WIN_HEIGHT) as u32)
+            .unwrap();
+        sheet_manager.set_buf(
+            sheet_win_b[i],
+            buf_win_b_addr as usize,
+            B_WIN_WIDTH as i32,
+            B_WIN_HEIGHT as i32,
+            None,
+        );
+        make_window(
+            buf_win_b_addr as usize,
+            B_WIN_WIDTH as i32,
+            B_WIN_HEIGHT as i32,
+            "",
+        );
+        // titleを動的に作成したいので、ここでwrite
+        use core::fmt::Write;
+        let mut writer = vga::ScreenWriter::new(
+            Some(buf_win_b_addr as usize),
+            Color::White,
+            24,
+            4,
+            B_WIN_WIDTH,
+            B_WIN_HEIGHT,
+        );
+        write!(writer, "window_b{}", i).unwrap();
+
+        task_b[i] = task_manager.alloc().unwrap();
+        let mut task_b_mut = &mut task_manager.tasks_data[task_b[i]];
+        let task_b_esp = memman.alloc_4k(64 * 1024).unwrap() + 64 * 1024 - 8;
+        task_b_mut.tss.esp = task_b_esp as i32;
+        task_b_mut.tss.eip = task_b_main as i32;
+        task_b_mut.tss.es = 1 * 8;
+        task_b_mut.tss.cs = 2 * 8;
+        task_b_mut.tss.ss = 1 * 8;
+        task_b_mut.tss.ds = 1 * 8;
+        task_b_mut.tss.fs = 1 * 8;
+        task_b_mut.tss.gs = 1 * 8;
+        // 第1引数にsheet_win_b[i]を読みこみ
+        let ptr = unsafe { &mut *((task_b_mut.tss.esp + 4) as *mut usize) };
+        *ptr = sheet_win_b[i];
+        task_manager.run(task_b[i]);
+    }
+
+    sheet_manager.slide(shi_mouse, mx, my);
+    sheet_manager.slide(shi_win, 8, 56);
+    sheet_manager.slide(sheet_win_b[0], 168, 56);
+    sheet_manager.slide(sheet_win_b[1], 8, 116);
+    sheet_manager.slide(sheet_win_b[2], 168, 116);
+    sheet_manager.updown(shi_bg, Some(0));
+    sheet_manager.updown(shi_win, Some(1));
+    sheet_manager.updown(sheet_win_b[0], Some(2));
+    sheet_manager.updown(sheet_win_b[1], Some(3));
+    sheet_manager.updown(sheet_win_b[2], Some(4));
+    sheet_manager.updown(shi_mouse, Some(5));
 
     // カーソル
     let min_cursor_x = 8;
@@ -187,7 +226,7 @@ pub extern "C" fn haribote_os() {
                         write_with_bg!(
                             sheet_manager,
                             shi_win,
-                            160,
+                            144,
                             52,
                             cursor_x,
                             28,
@@ -204,7 +243,7 @@ pub extern "C" fn haribote_os() {
                         write_with_bg!(
                             sheet_manager,
                             shi_win,
-                            160,
+                            144,
                             52,
                             cursor_x,
                             28,
@@ -215,7 +254,7 @@ pub extern "C" fn haribote_os() {
                         );
                         cursor_x -= 8;
                     }
-                    boxfill(buf_win_addr, 160, cursor_c, cursor_x, 28, cursor_x + 8, 43);
+                    boxfill(buf_win_addr, 144, cursor_c, cursor_x, 28, cursor_x + 8, 43);
                     sheet_manager.refresh(shi_win, cursor_x as i32, 28, cursor_x as i32 + 8, 44)
                 }
             } else if 512 <= i && i <= 767 {
@@ -260,32 +299,6 @@ pub extern "C" fn haribote_os() {
                         sheet_manager.slide(shi_win, new_x - 80, new_y - 8);
                     }
                 }
-            } else if i == 10 {
-                write_with_bg!(
-                    sheet_manager,
-                    shi_bg,
-                    *SCREEN_WIDTH as isize,
-                    *SCREEN_HEIGHT as isize,
-                    0,
-                    64,
-                    Color::White,
-                    Color::DarkCyan,
-                    7,
-                    "10[sec]"
-                );
-            } else if i == 3 {
-                write_with_bg!(
-                    sheet_manager,
-                    shi_bg,
-                    *SCREEN_WIDTH as isize,
-                    *SCREEN_HEIGHT as isize,
-                    0,
-                    80,
-                    Color::White,
-                    Color::DarkCyan,
-                    6,
-                    "3[sec]"
-                );
             } else {
                 if i != 0 {
                     TIMER_MANAGER.lock().init_timer(timer_index3, fifo_addr, 0);
@@ -295,7 +308,7 @@ pub extern "C" fn haribote_os() {
                     cursor_c = Color::White;
                 }
                 TIMER_MANAGER.lock().set_time(timer_index3, 50);
-                boxfill(buf_win_addr, 160, cursor_c, cursor_x, 28, cursor_x + 8, 43);
+                boxfill(buf_win_addr, 144, cursor_c, cursor_x, 28, cursor_x + 8, 43);
                 sheet_manager.refresh(shi_win, cursor_x as i32, 28, cursor_x as i32 + 8, 44)
             }
         } else {
@@ -305,7 +318,7 @@ pub extern "C" fn haribote_os() {
     }
 }
 
-pub extern "C" fn task_b_main() {
+pub extern "C" fn task_b_main(sheet_win: usize) {
     use asm::{cli, hlt, sti};
     use fifo::Fifo;
     use sheet::SheetManager;
@@ -315,7 +328,6 @@ pub extern "C" fn task_b_main() {
     let fifo = Fifo::new(128);
     let fifo_addr = &fifo as *const Fifo as usize;
 
-    let shi_bg = unsafe { SHEET_BG_ADDR };
     let sheet_manager_addr = unsafe { SHEET_MANAGER_ADDR };
     let sheet_manager = unsafe { &mut *(sheet_manager_addr as *mut SheetManager) };
 
@@ -336,13 +348,13 @@ pub extern "C" fn task_b_main() {
             if i == 8 {
                 write_with_bg!(
                     sheet_manager,
-                    shi_bg,
-                    *SCREEN_WIDTH as isize,
-                    *SCREEN_HEIGHT as isize,
-                    10,
+                    sheet_win,
                     144,
-                    Color::White,
-                    Color::DarkCyan,
+                    52,
+                    24,
+                    28,
+                    Color::Black,
+                    Color::LightGray,
                     11,
                     "{:>11}",
                     count
