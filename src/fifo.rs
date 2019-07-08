@@ -13,7 +13,7 @@ pub struct Fifo {
 const FLAGS_OVERRUN: u32 = 0x0001;
 
 impl Fifo {
-    pub fn new(size: u32) -> Fifo {
+    pub fn new(size: u32, task_index: Option<usize>) -> Fifo {
         Fifo {
             p: Cell::new(0),
             q: Cell::new(0),
@@ -21,7 +21,7 @@ impl Fifo {
             flags: Cell::new(0),
             size: size,
             buf: RefCell::new([0; 128]),
-            task_index: None,
+            task_index,
         }
     }
 

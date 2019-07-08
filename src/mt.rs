@@ -2,8 +2,8 @@ use core::default::Default;
 
 use crate::asm::{farjmp, load_tr};
 use crate::descriptor_table::{SegmentDescriptor, ADR_GDT, AR_TSS32};
-use crate::timer::TIMER_MANAGER;
 use crate::memory::MemMan;
+use crate::timer::TIMER_MANAGER;
 
 const MAX_TASKS: usize = 1000;
 const MAX_TASKS_LV: usize = 100;
