@@ -3,6 +3,7 @@ use core::default::Default;
 use crate::asm::{farjmp, load_tr};
 use crate::descriptor_table::{SegmentDescriptor, ADR_GDT, AR_TSS32};
 use crate::timer::TIMER_MANAGER;
+use crate::memory::MemMan;
 
 const MAX_TASKS: usize = 1000;
 const MAX_TASKS_LV: usize = 100;
@@ -157,7 +158,7 @@ impl TaskManager {
         self.lv_change = false;
     }
 
-    pub fn init(&mut self) -> Result<usize, &'static str> {
+    pub fn init(&mut self, memman: &mut MemMan) -> Result<usize, &'static str> {
         for i in 0..MAX_TASKS {
             let mut task = &mut self.tasks_data[i];
             task.select = (TASK_GDT0 + i as i32) * 8;
@@ -183,6 +184,20 @@ impl TaskManager {
         unsafe {
             MT_TIMER_INDEX = timer_index_ts;
         }
+        {
+            let idle_index = self.alloc().unwrap();
+            let mut idle = &mut self.tasks_data[idle_index];
+            idle.tss.esp = memman.alloc_4k(64 * 1024).unwrap() as i32 + 64 * 1024;
+            idle.tss.eip = task_idle as i32;
+            idle.tss.es = 1 * 8;
+            idle.tss.cs = 2 * 8;
+            idle.tss.ss = 1 * 8;
+            idle.tss.ds = 1 * 8;
+            idle.tss.fs = 1 * 8;
+            idle.tss.gs = 1 * 8;
+            self.run(idle_index, MAX_TASKLEVELS as i32 - 1, 1);
+        }
+
         Ok(task_index)
     }
 
@@ -257,5 +272,11 @@ impl TaskManager {
                 farjmp(0, now_task.select);
             }
         }
+    }
+}
+
+pub extern "C" fn task_idle() {
+    loop {
+        crate::asm::hlt();
     }
 }

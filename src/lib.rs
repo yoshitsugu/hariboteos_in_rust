@@ -123,7 +123,7 @@ pub extern "C" fn haribote_os() {
     }
     let task_manager = unsafe { &mut *(task_manager_addr as *mut TaskManager) };
     *task_manager = TaskManager::new();
-    let task_a_index = task_manager.init().unwrap();
+    let task_a_index = task_manager.init(memman).unwrap();
     {
         let mut fifo_mut = unsafe { &mut *(fifo_addr as *mut Fifo) };
         fifo_mut.task_index = Some(task_a_index);
@@ -180,7 +180,7 @@ pub extern "C" fn haribote_os() {
         // 第1引数にsheet_win_b[i]を読みこみ
         let ptr = unsafe { &mut *((task_b_mut.tss.esp + 4) as *mut usize) };
         *ptr = sheet_win_b[i];
-        task_manager.run(task_b[i], 2, (i + 1) as i32);
+        // task_manager.run(task_b[i], 2, (i + 1) as i32);
     }
 
     sheet_manager.slide(shi_mouse, mx, my);
