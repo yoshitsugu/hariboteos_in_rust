@@ -6,9 +6,10 @@
 use core::fmt::Write;
 use core::panic::PanicInfo;
 
-use asm::{cli, sti};
+use asm::{cli, out8, sti};
 use fifo::Fifo;
-use keyboard::{KEYBOARD_OFFSET, KEYTABLE};
+use interrupt::PORT_KEYDAT;
+use keyboard::{wait_kbc_sendready, KEYBOARD_OFFSET, KEYCMD_LED, KEYTABLE0, KEYTABLE1, LOCK_KEYS};
 use memory::{MemMan, MEMMAN_ADDR};
 use mouse::{Mouse, MouseDec, MOUSE_CURSOR_HEIGHT, MOUSE_CURSOR_WIDTH};
 use mt::{TaskManager, TASK_MANAGER_ADDR};
@@ -191,7 +192,23 @@ pub extern "C" fn haribote_os() {
 
     let mut active_window: usize = 0;
 
+    // シフトキー
+    let mut key_shift = (false, false);
+    // CapsLock, NumLock, ScreenLock
+    let mut lock_keys = *LOCK_KEYS;
+    let mut keycmd_wait: i32 = -1;
+    // キーボードの状態管理用のFifo
+    let keycmd = Fifo::new(32, None);
+    keycmd.put(KEYCMD_LED as u32).unwrap();
+    keycmd.put(lock_keys.as_bytes() as u32).unwrap();
+
     loop {
+        // キーボードコントローラに送ルデータがあれば送る
+        if keycmd.status() > 0 && keycmd_wait < 0 {
+            keycmd_wait = keycmd.get().unwrap() as u8 as i32;
+            wait_kbc_sendready();
+            out8(PORT_KEYDAT, keycmd_wait as u8);
+        }
         cli();
         if fifo.status() != 0 {
             let i = fifo.get().unwrap();
@@ -211,35 +228,25 @@ pub extern "C" fn haribote_os() {
                     "{:x}",
                     key
                 );
-                if key < KEYTABLE.len() as u32 {
-                    if KEYTABLE[key as usize] != 0 {
-                        if active_window == 0 {
-                            if cursor_x < max_cursor_x {
-                                write_with_bg!(
-                                    sheet_manager,
-                                    shi_win,
-                                    144,
-                                    52,
-                                    cursor_x,
-                                    28,
-                                    Color::Black,
-                                    Color::White,
-                                    1,
-                                    "{}",
-                                    KEYTABLE[key as usize] as char,
-                                );
-                                cursor_x += 8;
-                            }
-                        } else {
-                            let ctask = task_manager.tasks_data[console_task_index];
-                            let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
-                            fifo.put(KEYTABLE[key as usize] as u32 + KEYBOARD_OFFSET)
-                                .unwrap();
-                        }
+                let mut chr = 0 as u8;
+                if key < KEYTABLE0.len() as u32 {
+                    if key_shift == (false, false) {
+                        chr = KEYTABLE0[key as usize];
+                    } else {
+                        chr = KEYTABLE1[key as usize];
                     }
-                    // バックスペース
-                    if key == 0x0e && cursor_x > min_cursor_x {
-                        if active_window == 0 {
+                }
+                if b'A' <= chr && chr <= b'Z' {
+                    // アルファベットの場合、ShiftキーとCapsLockの状態で大文字小文字を決める
+                    if !lock_keys.caps_lock && key_shift == (false, false)
+                        || lock_keys.caps_lock && key_shift != (false, false)
+                    {
+                        chr += 0x20;
+                    }
+                }
+                if chr != 0 {
+                    if active_window == 0 {
+                        if cursor_x < max_cursor_x {
                             write_with_bg!(
                                 sheet_manager,
                                 shi_win,
@@ -250,59 +257,124 @@ pub extern "C" fn haribote_os() {
                                 Color::Black,
                                 Color::White,
                                 1,
-                                " "
+                                "{}",
+                                chr as char,
                             );
-                            cursor_x -= 8;
-                        } else {
-                            let ctask = task_manager.tasks_data[console_task_index];
-                            let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
-                            fifo.put(KEYTABLE[key as usize] as u32 + KEYBOARD_OFFSET)
-                                .unwrap();
+                            cursor_x += 8;
                         }
+                    } else {
+                        let ctask = task_manager.tasks_data[console_task_index];
+                        let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
+                        fifo.put(chr as u32 + KEYBOARD_OFFSET).unwrap();
                     }
-                    // タブ
-                    if key == 0x0f {
-                        let sheet_win = sheet_manager.sheets_data[shi_win];
-                        let sheet_console = sheet_manager.sheets_data[shi_console];
-                        if active_window == 0 {
-                            active_window = 1;
-                            make_wtitle(
-                                sheet_win.buf_addr,
-                                sheet_win.width as isize,
-                                sheet_win.height as isize,
-                                "task_a",
-                                false,
-                            );
-                            make_wtitle(
-                                sheet_console.buf_addr,
-                                sheet_console.width as isize,
-                                sheet_console.height as isize,
-                                "console",
-                                true,
-                            );
-                        } else {
-                            active_window = 0;
-                            make_wtitle(
-                                sheet_win.buf_addr,
-                                sheet_win.width as isize,
-                                sheet_win.height as isize,
-                                "task_a",
-                                true,
-                            );
-                            make_wtitle(
-                                sheet_console.buf_addr,
-                                sheet_console.width as isize,
-                                sheet_console.height as isize,
-                                "console",
-                                false,
-                            );
-                        }
-                        sheet_manager.refresh(shi_win, 0, 0, sheet_win.width, 21);
-                        sheet_manager.refresh(shi_console, 0, 0, sheet_console.width, 21);
-                    }
-                    boxfill(buf_win_addr, 144, cursor_c, cursor_x, 28, cursor_x + 8, 43);
-                    sheet_manager.refresh(shi_win, cursor_x as i32, 28, cursor_x as i32 + 8, 44)
                 }
+                // バックスペース
+                if key == 0x0e && cursor_x > min_cursor_x {
+                    if active_window == 0 {
+                        write_with_bg!(
+                            sheet_manager,
+                            shi_win,
+                            144,
+                            52,
+                            cursor_x,
+                            28,
+                            Color::Black,
+                            Color::White,
+                            1,
+                            " "
+                        );
+                        cursor_x -= 8;
+                    } else {
+                        let ctask = task_manager.tasks_data[console_task_index];
+                        let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
+                        fifo.put(chr as u32 + KEYBOARD_OFFSET).unwrap();
+                    }
+                }
+                // タブ
+                if key == 0x0f {
+                    let sheet_win = sheet_manager.sheets_data[shi_win];
+                    let sheet_console = sheet_manager.sheets_data[shi_console];
+                    if active_window == 0 {
+                        active_window = 1;
+                        make_wtitle(
+                            sheet_win.buf_addr,
+                            sheet_win.width as isize,
+                            sheet_win.height as isize,
+                            "task_a",
+                            false,
+                        );
+                        make_wtitle(
+                            sheet_console.buf_addr,
+                            sheet_console.width as isize,
+                            sheet_console.height as isize,
+                            "console",
+                            true,
+                        );
+                    } else {
+                        active_window = 0;
+                        make_wtitle(
+                            sheet_win.buf_addr,
+                            sheet_win.width as isize,
+                            sheet_win.height as isize,
+                            "task_a",
+                            true,
+                        );
+                        make_wtitle(
+                            sheet_console.buf_addr,
+                            sheet_console.width as isize,
+                            sheet_console.height as isize,
+                            "console",
+                            false,
+                        );
+                    }
+                    sheet_manager.refresh(shi_win, 0, 0, sheet_win.width, 21);
+                    sheet_manager.refresh(shi_console, 0, 0, sheet_console.width, 21);
+                }
+                // 左シフト ON
+                if key == 0x2a {
+                    key_shift.0 = true;
+                }
+                // 右シフト ON
+                if key == 0x36 {
+                    key_shift.1 = true;
+                }
+                // 左シフト OFF
+                if key == 0xaa {
+                    key_shift.0 = false;
+                }
+                // 右シフト OFF
+                if key == 0xb6 {
+                    key_shift.1 = false;
+                }
+                // CapsLock
+                if key == 0x3a {
+                    lock_keys.caps_lock = !lock_keys.caps_lock;
+                    keycmd.put(KEYCMD_LED as u32).unwrap();
+                    keycmd.put(lock_keys.as_bytes() as u32).unwrap();
+                }
+                // NumLock
+                if key == 0x45 {
+                    lock_keys.num_lock = !lock_keys.num_lock;
+                    keycmd.put(KEYCMD_LED as u32).unwrap();
+                    keycmd.put(lock_keys.as_bytes() as u32).unwrap();
+                }
+                // ScrollLock
+                if key == 0x46 {
+                    lock_keys.scroll_lock = !lock_keys.scroll_lock;
+                    keycmd.put(KEYCMD_LED as u32).unwrap();
+                    keycmd.put(lock_keys.as_bytes() as u32).unwrap();
+                }
+                // キーボードがデータを無事に受け取った
+                if key == 0xfa {
+                    keycmd_wait = -1;
+                }
+                // キーボードがデータを無事に受け取れなかった
+                if key == 0xfe {
+                    wait_kbc_sendready();
+                    out8(PORT_KEYDAT, keycmd_wait as u8);
+                }
+                boxfill(buf_win_addr, 144, cursor_c, cursor_x, 28, cursor_x + 8, 43);
+                sheet_manager.refresh(shi_win, cursor_x as i32, 28, cursor_x as i32 + 8, 44)
             } else if 512 <= i && i <= 767 {
                 if mouse_dec.decode((i - 512) as u8).is_some() {
                     write_with_bg!(
