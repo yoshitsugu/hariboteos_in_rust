@@ -269,9 +269,36 @@ macro_rules! write_with_bg {
     }}
 }
 
-pub fn make_window(buf: usize, xsize: i32, ysize: i32, title: &str) {
-    let xsize = xsize as isize;
-    let ysize = ysize as isize;
+pub fn make_window(buf: usize, xsize: isize, ysize: isize, title: &str, active: bool) {
+    boxfill(buf, xsize, Color::LightGray, 0, 0, xsize - 1, 0);
+    boxfill(buf, xsize, Color::White, 1, 1, xsize - 2, 1);
+    boxfill(buf, xsize, Color::LightGray, 0, 0, 0, ysize - 1);
+    boxfill(buf, xsize, Color::White, 1, 1, 1, ysize - 2);
+    boxfill(
+        buf,
+        xsize,
+        Color::DarkGray,
+        xsize - 2,
+        1,
+        xsize - 2,
+        ysize - 2,
+    );
+    boxfill(buf, xsize, Color::Black, xsize - 1, 0, xsize - 1, ysize - 1);
+    boxfill(buf, xsize, Color::LightGray, 2, 2, xsize - 3, ysize - 3);
+    boxfill(
+        buf,
+        xsize,
+        Color::DarkGray,
+        1,
+        ysize - 2,
+        xsize - 2,
+        ysize - 2,
+    );
+    boxfill(buf, xsize, Color::Black, 0, ysize - 1, xsize - 1, ysize - 1);
+    make_wtitle(buf, xsize, ysize, title, active);
+}
+
+pub fn make_wtitle(buf: usize, xsize: isize, ysize: isize, title: &str, active: bool) {
     let closebtn: [&[u8; 16]; 14] = [
         b"OOOOOOOOOOOOOOO@",
         b"OQQQQQQQQQQQQQ$@",
@@ -288,32 +315,16 @@ pub fn make_window(buf: usize, xsize: i32, ysize: i32, title: &str) {
         b"O$$$$$$$$$$$$$$@",
         b"@@@@@@@@@@@@@@@@",
     ];
-    boxfill(buf, xsize, Color::LightGray, 0, 0, xsize - 1, 0);
-    boxfill(buf, xsize, Color::White, 1, 1, xsize - 2, 1);
-    boxfill(buf, xsize, Color::LightGray, 0, 0, 0, ysize - 1);
-    boxfill(buf, xsize, Color::White, 1, 1, 1, ysize - 2);
-    boxfill(
-        buf,
-        xsize,
-        Color::DarkGray,
-        xsize - 2,
-        1,
-        xsize - 2,
-        ysize - 2,
-    );
-    boxfill(buf, xsize, Color::Black, xsize - 1, 0, xsize - 1, ysize - 1);
-    boxfill(buf, xsize, Color::LightGray, 2, 2, xsize - 3, ysize - 3);
-    boxfill(buf, xsize, Color::DarkBlue, 3, 3, xsize - 4, 20);
-    boxfill(
-        buf,
-        xsize,
-        Color::DarkGray,
-        1,
-        ysize - 2,
-        xsize - 2,
-        ysize - 2,
-    );
-    boxfill(buf, xsize, Color::Black, 0, ysize - 1, xsize - 1, ysize - 1);
+    let title_bg: Color;
+    let title_fg: Color;
+    if active {
+        title_bg = Color::DarkBlue;
+        title_fg = Color::White;
+    } else {
+        title_bg = Color::DarkGray;
+        title_fg = Color::LightGray;
+    }
+    boxfill(buf, xsize, title_bg, 3, 3, xsize - 4, 20);
     let mut writer = ScreenWriter::new(
         Some(buf),
         Color::White,

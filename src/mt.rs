@@ -48,6 +48,7 @@ pub struct Task {
     pub level: usize,
     pub priority: i32,
     pub tss: TSS,
+    pub fifo_addr: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +66,7 @@ impl Task {
             level: 0,
             priority: 2,
             tss: Default::default(),
+            fifo_addr: 0,
         }
     }
 }
@@ -158,7 +160,7 @@ impl TaskManager {
         self.lv_change = false;
     }
 
-    pub fn init(&mut self, memman: &mut MemMan) -> Result<usize, &'static str> {
+    pub fn init(&mut self, memman: &mut MemMan, fifo_addr: usize) -> Result<usize, &'static str> {
         for i in 0..MAX_TASKS {
             let mut task = &mut self.tasks_data[i];
             task.select = (TASK_GDT0 + i as i32) * 8;
@@ -172,6 +174,7 @@ impl TaskManager {
             task.flag = TaskFlag::RUNNING;
             task.priority = 2;
             task.level = 0;
+            task.fifo_addr = fifo_addr;
         }
         self.add_task(task_index);
         self.switchsub();
