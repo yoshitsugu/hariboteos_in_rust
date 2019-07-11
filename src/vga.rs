@@ -327,7 +327,7 @@ pub fn make_wtitle(buf: usize, xsize: isize, ysize: isize, title: &str, active: 
     boxfill(buf, xsize, title_bg, 3, 3, xsize - 4, 20);
     let mut writer = ScreenWriter::new(
         Some(buf),
-        Color::White,
+        title_fg,
         24,
         4,
         xsize as usize,

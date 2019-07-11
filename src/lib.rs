@@ -34,6 +34,8 @@ mod timer;
 mod vga;
 
 static mut SHEET_MANAGER_ADDR: usize = 0;
+const CONSOLE_CURSOR_ON: u32 = 2;
+const CONSOLE_CURSOR_OFF: u32 = 3;
 
 #[no_mangle]
 #[start]
@@ -189,6 +191,7 @@ pub extern "C" fn haribote_os() {
     let max_cursor_x = 144;
     let mut cursor_x = min_cursor_x;
     let mut cursor_c = Color::White;
+    let mut cursor_on = true;
 
     let mut active_window: usize = 0;
 
@@ -310,6 +313,12 @@ pub extern "C" fn haribote_os() {
                             "console",
                             true,
                         );
+                        // カーソルを消す
+                        cursor_on = false;
+                        // コンソールのカーソルを表示
+                        let ctask = task_manager.tasks_data[console_task_index];
+                        let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
+                        fifo.put(CONSOLE_CURSOR_ON).unwrap();
                     } else {
                         active_window = 0;
                         make_wtitle(
@@ -326,6 +335,12 @@ pub extern "C" fn haribote_os() {
                             "console",
                             false,
                         );
+                        // カーソルを表示
+                        cursor_on = true;
+                        // コンソールのカーソルを消す
+                        let ctask = task_manager.tasks_data[console_task_index];
+                        let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
+                        fifo.put(CONSOLE_CURSOR_OFF).unwrap();
                     }
                     sheet_manager.refresh(shi_win, 0, 0, sheet_win.width, 21);
                     sheet_manager.refresh(shi_console, 0, 0, sheet_console.width, 21);
@@ -420,14 +435,20 @@ pub extern "C" fn haribote_os() {
             } else {
                 if i != 0 {
                     TIMER_MANAGER.lock().init_timer(timer_index3, fifo_addr, 0);
-                    cursor_c = Color::Black;
+                    cursor_c = if cursor_on {
+                        Color::Black
+                    } else {
+                        Color::White
+                    };
                 } else {
                     TIMER_MANAGER.lock().init_timer(timer_index3, fifo_addr, 1);
                     cursor_c = Color::White;
                 }
                 TIMER_MANAGER.lock().set_time(timer_index3, 50);
-                boxfill(buf_win_addr, 144, cursor_c, cursor_x, 28, cursor_x + 8, 43);
-                sheet_manager.refresh(shi_win, cursor_x as i32, 28, cursor_x as i32 + 8, 44)
+                if cursor_on {
+                    boxfill(buf_win_addr, 144, cursor_c, cursor_x, 28, cursor_x + 8, 43);
+                    sheet_manager.refresh(shi_win, cursor_x as i32, 28, cursor_x as i32 + 8, 44)
+                }
             }
         } else {
             task_manager.sleep(task_a_index);
@@ -449,6 +470,7 @@ pub extern "C" fn console_task(sheet_index: usize) {
 
     let mut cursor_x: isize = 16;
     let mut cursor_c = Color::Black;
+    let mut cursor_on = false;
     let min_cursor_x = 16;
     let max_cursor_x = 240;
 
@@ -485,7 +507,11 @@ pub extern "C" fn console_task(sheet_index: usize) {
             if i <= 1 {
                 if i != 0 {
                     TIMER_MANAGER.lock().init_timer(timer_index, fifo_addr, 0);
-                    cursor_c = Color::White;
+                    cursor_c = if cursor_on {
+                        Color::White
+                    } else {
+                        Color::Black
+                    };
                 } else {
                     TIMER_MANAGER.lock().init_timer(timer_index, fifo_addr, 1);
                     cursor_c = Color::Black;
@@ -529,17 +555,23 @@ pub extern "C" fn console_task(sheet_index: usize) {
                         }
                     }
                 }
+            } else if i == CONSOLE_CURSOR_ON {
+                cursor_on = true;
+            } else if i == CONSOLE_CURSOR_OFF {
+                cursor_on = false;
             }
-            boxfill(
-                sheet.buf_addr,
-                sheet.width as isize,
-                cursor_c,
-                cursor_x,
-                28,
-                cursor_x + 7,
-                43,
-            );
-            sheet_manager.refresh(sheet_index, cursor_x as i32, 28, cursor_x as i32 + 8, 44);
+            if cursor_on {
+                boxfill(
+                    sheet.buf_addr,
+                    sheet.width as isize,
+                    cursor_c,
+                    cursor_x,
+                    28,
+                    cursor_x + 7,
+                    43,
+                );
+                sheet_manager.refresh(sheet_index, cursor_x as i32, 28, cursor_x as i32 + 8, 44);
+            }
         }
     }
 }
