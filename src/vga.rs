@@ -325,14 +325,7 @@ pub fn make_wtitle(buf: usize, xsize: isize, ysize: isize, title: &str, active: 
         title_fg = Color::LightGray;
     }
     boxfill(buf, xsize, title_bg, 3, 3, xsize - 4, 20);
-    let mut writer = ScreenWriter::new(
-        Some(buf),
-        title_fg,
-        24,
-        4,
-        xsize as usize,
-        ysize as usize,
-    );
+    let mut writer = ScreenWriter::new(Some(buf), title_fg, 24, 4, xsize as usize, ysize as usize);
     write!(writer, "{}", title).unwrap();
     for y in 0..14 {
         let y = y as usize;
