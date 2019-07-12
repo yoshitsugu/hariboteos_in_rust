@@ -3,10 +3,27 @@
 #![feature(start)]
 #![feature(naked_functions)]
 
+mod asm;
+mod console;
+mod descriptor_table;
+mod fifo;
+mod fonts;
+mod interrupt;
+mod keyboard;
+mod memory;
+mod mouse;
+mod mt;
+mod sheet;
+mod timer;
+mod vga;
+
 use core::fmt::Write;
 use core::panic::PanicInfo;
 
 use asm::{cli, out8, sti};
+use console::{
+    console_task, CONSOLE_BACKSPACE, CONSOLE_CURSOR_OFF, CONSOLE_CURSOR_ON, CONSOLE_ENTER,
+};
 use fifo::Fifo;
 use interrupt::PORT_KEYDAT;
 use keyboard::{wait_kbc_sendready, KEYBOARD_OFFSET, KEYCMD_LED, KEYTABLE0, KEYTABLE1, LOCK_KEYS};
@@ -20,23 +37,7 @@ use vga::{
     ScreenWriter, SCREEN_HEIGHT, SCREEN_WIDTH,
 };
 
-mod asm;
-mod descriptor_table;
-mod fifo;
-mod fonts;
-mod interrupt;
-mod keyboard;
-mod memory;
-mod mouse;
-mod mt;
-mod sheet;
-mod timer;
-mod vga;
-
-static mut SHEET_MANAGER_ADDR: usize = 0;
-const CONSOLE_CURSOR_ON: u32 = 2;
-const CONSOLE_CURSOR_OFF: u32 = 3;
-const CONSOLE_ENTER: u32 = 10;
+pub static mut SHEET_MANAGER_ADDR: usize = 0;
 
 #[no_mangle]
 #[start]
@@ -117,21 +118,6 @@ pub extern "C" fn haribote_os() {
     make_window(buf_win_addr, 144, 52, "task_a", true);
     make_textbox(buf_win_addr, 144, 8, 28, 128, 16, Color::White);
 
-    write_with_bg!(
-        sheet_manager,
-        shi_bg,
-        *SCREEN_WIDTH as isize,
-        *SCREEN_HEIGHT as isize,
-        0,
-        32,
-        Color::White,
-        Color::DarkCyan,
-        27,
-        "total: {:>2}MB  free: {:>6}KB",
-        memtotal / (1024 * 1024),
-        memman.total() / 1024
-    );
-
     task_manager.run(task_a_index, 1, 2);
 
     const CONSOLE_WIDTH: usize = 256;
@@ -166,7 +152,7 @@ pub extern "C" fn haribote_os() {
     );
     let console_task_index = task_manager.alloc().unwrap();
     let mut console_task_mut = &mut task_manager.tasks_data[console_task_index];
-    let console_esp = memman.alloc_4k(64 * 1024).unwrap() + 64 * 1024 - 8;
+    let console_esp = memman.alloc_4k(64 * 1024).unwrap() + 64 * 1024 - 12;
     console_task_mut.tss.esp = console_esp as i32;
     console_task_mut.tss.eip = console_task as i32;
     console_task_mut.tss.es = 1 * 8;
@@ -177,6 +163,8 @@ pub extern "C" fn haribote_os() {
     console_task_mut.tss.gs = 1 * 8;
     let ptr = unsafe { &mut *((console_task_mut.tss.esp + 4) as *mut usize) };
     *ptr = shi_console;
+    let ptr = unsafe { &mut *((console_task_mut.tss.esp + 8) as *mut usize) };
+    *ptr = memtotal as usize;
     task_manager.run(console_task_index, 2, 2);
 
     sheet_manager.slide(shi_mouse, mx, my);
@@ -281,8 +269,8 @@ pub extern "C" fn haribote_os() {
                     }
                 }
                 // バックスペース
-                if key == 0x0e && cursor_x > min_cursor_x {
-                    if active_window == 0 {
+                if key == 0x0e {
+                    if active_window == 0 && cursor_x > min_cursor_x {
                         write_with_bg!(
                             sheet_manager,
                             shi_win,
@@ -299,7 +287,7 @@ pub extern "C" fn haribote_os() {
                     } else {
                         let ctask = task_manager.tasks_data[console_task_index];
                         let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
-                        fifo.put(chr as u32 + KEYBOARD_OFFSET).unwrap();
+                        fifo.put(CONSOLE_BACKSPACE + KEYBOARD_OFFSET).unwrap();
                     }
                 }
                 // タブ
@@ -462,200 +450,6 @@ pub extern "C" fn haribote_os() {
         } else {
             task_manager.sleep(task_a_index);
             sti();
-        }
-    }
-}
-
-pub extern "C" fn console_task(sheet_index: usize) {
-    let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
-    let task_index = task_manager.now_index();
-
-    let fifo = Fifo::new(128, Some(task_index));
-    let fifo_addr = &fifo as *const Fifo as usize;
-    {
-        let mut task = &mut task_manager.tasks_data[task_index];
-        task.fifo_addr = fifo_addr;
-    }
-
-    let min_cursor_x = 16;
-    let min_cursor_y = 28;
-    let max_cursor_x = 8 + 240;
-    let max_cursor_y = 28 + 112;
-    let mut cursor_x: isize = min_cursor_x as isize;
-    let mut cursor_y: isize = min_cursor_y as isize;
-    let mut cursor_c = Color::Black;
-    let mut cursor_on = false;
-
-    let sheet_manager_addr = unsafe { SHEET_MANAGER_ADDR };
-    let sheet_manager = unsafe { &mut *(sheet_manager_addr as *mut SheetManager) };
-
-    let timer_index = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER.lock().init_timer(timer_index, fifo_addr, 1);
-    TIMER_MANAGER.lock().set_time(timer_index, 50);
-    let sheet = sheet_manager.sheets_data[sheet_index];
-
-    // プロンプト表示
-    write_with_bg!(
-        sheet_manager,
-        sheet_index,
-        sheet.width,
-        sheet.height,
-        8,
-        cursor_y,
-        Color::White,
-        Color::Black,
-        1,
-        ">"
-    );
-
-    loop {
-        cli();
-        if fifo.status() == 0 {
-            task_manager.sleep(task_index);
-            sti();
-        } else {
-            let i = fifo.get().unwrap();
-            sti();
-            if i <= 1 {
-                if i != 0 {
-                    TIMER_MANAGER.lock().init_timer(timer_index, fifo_addr, 0);
-                    cursor_c = if cursor_on {
-                        Color::White
-                    } else {
-                        Color::Black
-                    };
-                } else {
-                    TIMER_MANAGER.lock().init_timer(timer_index, fifo_addr, 1);
-                    cursor_c = Color::Black;
-                }
-                TIMER_MANAGER.lock().set_time(timer_index, 50);
-            } else if KEYBOARD_OFFSET <= i && i <= 511 {
-                let key = (i - KEYBOARD_OFFSET) as u8;
-                if key != 0 {
-                    if key == 0x0e {
-                        if cursor_x > min_cursor_x {
-                            write_with_bg!(
-                                sheet_manager,
-                                sheet_index,
-                                sheet.width,
-                                sheet.height,
-                                cursor_x,
-                                cursor_y,
-                                Color::White,
-                                Color::Black,
-                                1,
-                                " "
-                            );
-                            cursor_x -= 8;
-                        }
-                    } else if key == CONSOLE_ENTER as u8 {
-                        write_with_bg!(
-                            sheet_manager,
-                            sheet_index,
-                            sheet.width,
-                            sheet.height,
-                            cursor_x,
-                            cursor_y,
-                            Color::White,
-                            Color::Black,
-                            1,
-                            " "
-                        );
-                        if cursor_y < max_cursor_y {
-                            cursor_y += 16;
-                        } else {
-                            for y in min_cursor_y..max_cursor_y {
-                                for x in min_cursor_x..max_cursor_x {
-                                    let x = x as usize;
-                                    let y = y as usize;
-                                    // 下の画素をコピーする
-                                    let ptr = unsafe {
-                                        &mut *((sheet.buf_addr + x + y * sheet.width as usize)
-                                            as *mut u8)
-                                    };
-                                    *ptr = unsafe {
-                                        *((sheet.buf_addr + x + (y + 16) * sheet.width as usize)
-                                            as *const u8)
-                                    }
-                                }
-                            }
-                            for y in max_cursor_y..(max_cursor_y + 16) {
-                                for x in min_cursor_x..max_cursor_x {
-                                    let x = x as usize;
-                                    let y = y as usize;
-                                    // 最後の行は黒で埋める
-                                    let ptr = unsafe {
-                                        &mut *((sheet.buf_addr + x + y * sheet.width as usize)
-                                            as *mut u8)
-                                    };
-                                    *ptr = Color::Black as u8;
-                                }
-                            }
-
-                            sheet_manager.refresh(
-                                sheet_index,
-                                min_cursor_x as i32,
-                                min_cursor_y as i32,
-                                max_cursor_x as i32,
-                                max_cursor_y as i32 + 16,
-                            );
-                        }
-                        // プロンプト表示
-                        write_with_bg!(
-                            sheet_manager,
-                            sheet_index,
-                            sheet.width,
-                            sheet.height,
-                            8,
-                            cursor_y,
-                            Color::White,
-                            Color::Black,
-                            1,
-                            ">"
-                        );
-                        cursor_x = 16;
-                    } else {
-                        if cursor_x < max_cursor_x {
-                            write_with_bg!(
-                                sheet_manager,
-                                sheet_index,
-                                sheet.width,
-                                sheet.height,
-                                cursor_x,
-                                cursor_y,
-                                Color::White,
-                                Color::Black,
-                                1,
-                                "{}",
-                                key as char,
-                            );
-                            cursor_x += 8;
-                        }
-                    }
-                }
-            } else if i == CONSOLE_CURSOR_ON {
-                cursor_on = true;
-            } else if i == CONSOLE_CURSOR_OFF {
-                cursor_on = false;
-            }
-            if cursor_on {
-                boxfill(
-                    sheet.buf_addr,
-                    sheet.width as isize,
-                    cursor_c,
-                    cursor_x,
-                    cursor_y,
-                    cursor_x + 7,
-                    cursor_y + 15,
-                );
-                sheet_manager.refresh(
-                    sheet_index,
-                    cursor_x as i32,
-                    cursor_y as i32,
-                    cursor_x as i32 + 8,
-                    cursor_y as i32 + 16,
-                );
-            }
         }
     }
 }
