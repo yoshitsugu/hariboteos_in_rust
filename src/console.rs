@@ -1,5 +1,8 @@
+use core::str::from_utf8;
+
 use crate::asm::{cli, sti};
 use crate::fifo::Fifo;
+use crate::file::*;
 use crate::keyboard::KEYBOARD_OFFSET;
 use crate::memory::{MemMan, MEMMAN_ADDR};
 use crate::mt::{TaskManager, TASK_MANAGER_ADDR};
@@ -228,7 +231,7 @@ fn exec_cmd(
     let sheet = sheet_manager.sheets_data[sheet_index];
     let mut cursor_y = cursor_y;
     let cmd_ind = extract_cmd_index(cmdline);
-    let cmd = core::str::from_utf8(&cmdline[cmd_ind.0..cmd_ind.1]).unwrap();
+    let cmd = from_utf8(&cmdline[cmd_ind.0..cmd_ind.1]).unwrap();
     if cmd == "mem" {
         let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
 
@@ -279,6 +282,37 @@ fn exec_cmd(
             (MAX_CURSOR_Y + 16) as i32,
         );
         cursor_y = MIN_CURSOR_Y;
+    } else if cmd == "ls" {
+        for findex in 0..MAX_FILE_INFO {
+            let finfo = unsafe {
+                *((ADR_DISKIMG + ADR_FILE_OFFSET + findex * core::mem::size_of::<FileInfo>())
+                    as *const FileInfo)
+            };
+            if finfo.name[0] == 0x00 {
+                break;
+            }
+            if finfo.name[0] != 0xe5 {
+                if (finfo.ftype & 0x18) == 0 {
+                    write_with_bg!(
+                        sheet_manager,
+                        sheet_index,
+                        sheet.width,
+                        sheet.height,
+                        8,
+                        cursor_y,
+                        Color::White,
+                        Color::Black,
+                        30,
+                        "{:>8}.{:>3}   {:>7}",
+                        from_utf8(&finfo.name).unwrap(),
+                        from_utf8(&finfo.ext).unwrap(),
+                        finfo.size
+                    );
+                    cursor_y = newline(cursor_y, sheet_manager, sheet_index);
+                }
+            }
+        }
+        cursor_y = newline(cursor_y, sheet_manager, sheet_index);
     } else {
         write_with_bg!(
             sheet_manager,

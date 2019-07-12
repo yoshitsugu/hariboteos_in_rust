@@ -7,6 +7,7 @@ mod asm;
 mod console;
 mod descriptor_table;
 mod fifo;
+mod file;
 mod fonts;
 mod interrupt;
 mod keyboard;
