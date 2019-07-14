@@ -47,6 +47,14 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
     TIMER_MANAGER.lock().set_time(timer_index, 50);
     let sheet = sheet_manager.sheets_data[sheet_index];
 
+    let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
+
+    let fat_addr = memman.alloc_4k(4 * MAX_FAT as u32).unwrap();
+    let mut fat = unsafe { &mut *(fat_addr as *mut [u32; (MAX_FAT)]) };
+    read_fat(fat, unsafe {
+        *((ADR_DISKIMG + 0x000200) as *const [u8; (MAX_FAT * 4)])
+    });
+
     // プロンプト表示
     write_with_bg!(
         sheet_manager,
@@ -117,7 +125,7 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
                         );
                         cursor_y = newline(cursor_y, sheet_manager, sheet_index);
                         cursor_y =
-                            exec_cmd(cmdline, cursor_y, sheet_manager, sheet_index, memtotal);
+                            exec_cmd(cmdline, cursor_y, sheet_manager, sheet_index, memtotal, fat);
                         cmdline = [0; 30];
                         // プロンプト表示
                         write_with_bg!(
@@ -227,9 +235,11 @@ fn exec_cmd(
     sheet_manager: &mut SheetManager,
     sheet_index: usize,
     memtotal: usize,
+    fat: &[u32; MAX_FAT],
 ) -> isize {
     let sheet = sheet_manager.sheets_data[sheet_index];
     let mut cursor_y = cursor_y;
+    let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
     macro_rules! display_error {
         ($error: tt, $cursor_y: tt) => {
             write_with_bg!(
@@ -255,8 +265,6 @@ fn exec_cmd(
     }
     let cmd = from_utf8(&cmd.unwrap()).unwrap();
     if cmd == "mem" {
-        let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
-
         write_with_bg!(
             sheet_manager,
             sheet_index,
@@ -408,10 +416,11 @@ fn exec_cmd(
             }
         }
         if let Some(finfo) = target_finfo {
-            let content_length = finfo.size;
+            let content_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
+            finfo.load_file(content_addr, fat, ADR_DISKIMG + 0x003e00);
             let mut cursor_x = 8;
-            for x in 0..content_length {
-                let chr = unsafe { *((finfo.content_addr() + x as usize) as *const u8) };
+            for x in 0..finfo.size {
+                let chr = unsafe { *((content_addr + x as usize) as *const u8) };
                 if chr == 0x09 {
                     // タブ
                     loop {

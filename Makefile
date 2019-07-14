@@ -17,6 +17,7 @@ $(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys Makefile
 	mcopy $(OUTPUT_DIR)/haribote.sys -i $@ ::
 	mcopy test.txt -i $@ ::
 	mcopy asm/ipl.asm -i $@ ::
+	mcopy src/lib.rs -i $@ ::
 
 asm :
 	make $(OUTPUT_DIR)/ipl.bin 
