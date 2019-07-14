@@ -1,6 +1,7 @@
 use core::str::from_utf8;
 
-use crate::asm::{cli, sti};
+use crate::asm::{cli, sti, farjmp};
+use crate::descriptor_table::{SegmentDescriptor, ADR_GDT, AR_CODE32_ER};
 use crate::fifo::Fifo;
 use crate::file::*;
 use crate::keyboard::KEYBOARD_OFFSET;
@@ -351,70 +352,7 @@ fn exec_cmd(
             display_error!("File Not Found", cursor_y);
         }
         let filename = filename.unwrap();
-        // 拡張子の前後でわける
-        let mut filename = filename.split(|c| *c == b'.');
-        let basename = filename.next();
-        let extname = filename.next();
-        let mut b = [b' '; 8];
-        let mut e = [b' '; 3];
-        if let Some(basename) = basename {
-            for fi in 0..b.len() {
-                if basename.len() <= fi {
-                    break;
-                }
-                if b'a' <= basename[fi] && basename[fi] <= b'z' {
-                    // 小文字は大文字で正規化しておく
-                    b[fi] = basename[fi] - 0x20;
-                } else {
-                    b[fi] = basename[fi];
-                }
-            }
-        } else {
-            display_error!("File Not Found", cursor_y);
-        }
-        if let Some(extname) = extname {
-            for fi in 0..e.len() {
-                if extname.len() <= fi {
-                    break;
-                }
-                if b'a' <= extname[fi] && extname[fi] <= b'z' {
-                    e[fi] = extname[fi] - 0x20;
-                } else {
-                    e[fi] = extname[fi];
-                }
-            }
-        }
-        let mut target_finfo: Option<FileInfo> = None;
-        for findex in 0..MAX_FILE_INFO {
-            let finfo = unsafe {
-                *((ADR_DISKIMG + ADR_FILE_OFFSET + findex * core::mem::size_of::<FileInfo>())
-                    as *const FileInfo)
-            };
-            if finfo.name[0] == 0x00 {
-                break;
-            }
-            if finfo.name[0] != 0xe5 {
-                if (finfo.ftype & 0x18) == 0 {
-                    let mut filename_equal = true;
-                    for y in 0..finfo.name.len() {
-                        if finfo.name[y] != b[y] {
-                            filename_equal = false;
-                            break;
-                        }
-                    }
-                    for y in 0..finfo.ext.len() {
-                        if finfo.ext[y] != e[y] {
-                            filename_equal = false;
-                            break;
-                        }
-                    }
-                    if filename_equal {
-                        target_finfo = Some(finfo);
-                        break;
-                    }
-                }
-            }
-        }
+        let target_finfo = search_file(filename);
         if let Some(finfo) = target_finfo {
             let content_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
             finfo.load_file(content_addr, fat, ADR_DISKIMG + 0x003e00);
@@ -479,6 +417,19 @@ fn exec_cmd(
         } else {
             display_error!("File Not Found", cursor_y);
         }
+    } else if cmd == "hlt" {
+        let finfo = search_file(b"hlt.bin");
+        if finfo.is_none() {
+            display_error!("File Not Found", cursor_y);
+        }
+        let finfo = finfo.unwrap();
+        let content_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
+        finfo.load_file(content_addr, fat, ADR_DISKIMG + 0x003e00);
+        let gdt_offset = 1003; // 1,2,3はdesciptor_table.rsで、1002まではmt.rsで使用済
+        let gdt = unsafe { &mut *((ADR_GDT + 1003 * 8) as *mut SegmentDescriptor) };
+        *gdt = SegmentDescriptor::new(finfo.size - 1, content_addr as i32, AR_CODE32_ER);
+        farjmp(0, 1003 * 8);
+        memman.free_4k(content_addr as u32, finfo.size).unwrap();
     } else {
         write_with_bg!(
             sheet_manager,
@@ -496,4 +447,72 @@ fn exec_cmd(
         cursor_y = newline(cursor_y, sheet_manager, sheet_index);
     }
     cursor_y
+}
+
+fn search_file(filename: &[u8]) -> Option<FileInfo> {
+    let mut target_finfo = None;
+    // 拡張子の前後でわける
+    let mut filename = filename.split(|c| *c == b'.');
+    let basename = filename.next();
+    let extname = filename.next();
+    let mut b = [b' '; 8];
+    let mut e = [b' '; 3];
+    if let Some(basename) = basename {
+        for fi in 0..b.len() {
+            if basename.len() <= fi {
+                break;
+            }
+            if b'a' <= basename[fi] && basename[fi] <= b'z' {
+                // 小文字は大文字で正規化しておく
+                b[fi] = basename[fi] - 0x20;
+            } else {
+                b[fi] = basename[fi];
+            }
+        }
+    } else {
+        return None;
+    }
+    if let Some(extname) = extname {
+        for fi in 0..e.len() {
+            if extname.len() <= fi {
+                break;
+            }
+            if b'a' <= extname[fi] && extname[fi] <= b'z' {
+                e[fi] = extname[fi] - 0x20;
+            } else {
+                e[fi] = extname[fi];
+            }
+        }
+    }
+    for findex in 0..MAX_FILE_INFO {
+        let finfo = unsafe {
+            *((ADR_DISKIMG + ADR_FILE_OFFSET + findex * core::mem::size_of::<FileInfo>())
+                as *const FileInfo)
+        };
+        if finfo.name[0] == 0x00 {
+            break;
+        }
+        if finfo.name[0] != 0xe5 {
+            if (finfo.ftype & 0x18) == 0 {
+                let mut filename_equal = true;
+                for y in 0..finfo.name.len() {
+                    if finfo.name[y] != b[y] {
+                        filename_equal = false;
+                        break;
+                    }
+                }
+                for y in 0..finfo.ext.len() {
+                    if finfo.ext[y] != e[y] {
+                        filename_equal = false;
+                        break;
+                    }
+                }
+                if filename_equal {
+                    target_finfo = Some(finfo);
+                    break;
+                }
+            }
+        }
+    }
+    target_finfo
 }

@@ -64,7 +64,7 @@ const LIMIT_BOTPAK: u32 = 0x0007ffff;
 pub const AR_TSS32: i32 = 0x0089;
 const AR_INTGATE32: i32 = 0x008e;
 const AR_DATA32_RW: i32 = 0x4092;
-const AR_CODE32_ER: i32 = 0x409a;
+pub const AR_CODE32_ER: i32 = 0x409a;
 
 pub fn init() {
     // GDTの初期化
