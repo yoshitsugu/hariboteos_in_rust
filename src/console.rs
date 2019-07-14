@@ -259,7 +259,8 @@ fn exec_cmd(
             return newline(cursor_y, sheet_manager, sheet_index);
         };
     }
-    let mut cmdline_strs = cmdline.split(|s| *s == 0 || *s == b' ');
+    let cmdline_strs = cmdline.split(|s| *s == 0 || *s == b' ');
+    let mut cmdline_strs = cmdline_strs.skip_while(|cmd| cmd.len() == 0);
     let cmd = cmdline_strs.next();
     if cmd.is_none() {
         display_error!("Bad Command", cursor_y);
@@ -426,9 +427,9 @@ fn exec_cmd(
         let content_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
         finfo.load_file(content_addr, fat, ADR_DISKIMG + 0x003e00);
         let gdt_offset = 1003; // 1,2,3はdesciptor_table.rsで、1002まではmt.rsで使用済
-        let gdt = unsafe { &mut *((ADR_GDT + 1003 * 8) as *mut SegmentDescriptor) };
+        let gdt = unsafe { &mut *((ADR_GDT + gdt_offset * 8) as *mut SegmentDescriptor) };
         *gdt = SegmentDescriptor::new(finfo.size - 1, content_addr as i32, AR_CODE32_ER);
-        farjmp(0, 1003 * 8);
+        farjmp(0, gdt_offset * 8);
         memman.free_4k(content_addr as u32, finfo.size).unwrap();
     } else {
         write_with_bg!(
