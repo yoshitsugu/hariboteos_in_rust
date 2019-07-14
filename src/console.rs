@@ -230,8 +230,30 @@ fn exec_cmd(
 ) -> isize {
     let sheet = sheet_manager.sheets_data[sheet_index];
     let mut cursor_y = cursor_y;
-    let cmd_ind = extract_cmd_index(cmdline);
-    let cmd = from_utf8(&cmdline[cmd_ind.0..cmd_ind.1]).unwrap();
+    macro_rules! display_error {
+        ($error: tt, $cursor_y: tt) => {
+            write_with_bg!(
+                sheet_manager,
+                sheet_index,
+                sheet.width,
+                sheet.height,
+                8,
+                $cursor_y,
+                Color::White,
+                Color::Black,
+                30,
+                $error
+            );
+            cursor_y = newline($cursor_y, sheet_manager, sheet_index);
+            return newline(cursor_y, sheet_manager, sheet_index);
+        };
+    }
+    let mut cmdline_strs = cmdline.split(|s| *s == 0 || *s == b' ');
+    let cmd = cmdline_strs.next();
+    if cmd.is_none() {
+        display_error!("Bad Command", cursor_y);
+    }
+    let cmd = from_utf8(&cmd.unwrap()).unwrap();
     if cmd == "mem" {
         let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
 
@@ -313,6 +335,140 @@ fn exec_cmd(
             }
         }
         cursor_y = newline(cursor_y, sheet_manager, sheet_index);
+    } else if cmd == "cat" {
+        // ファイル名となるところを抽出
+        let mut filename = cmdline_strs.skip_while(|strs| strs.len() == 0);
+        let filename = filename.next();
+        if filename.is_none() {
+            display_error!("File Not Found", cursor_y);
+        }
+        let filename = filename.unwrap();
+        // 拡張子の前後でわける
+        let mut filename = filename.split(|c| *c == b'.');
+        let basename = filename.next();
+        let extname = filename.next();
+        let mut b = [b' '; 8];
+        let mut e = [b' '; 3];
+        if let Some(basename) = basename {
+            for fi in 0..b.len() {
+                if basename.len() <= fi {
+                    break;
+                }
+                if b'a' <= basename[fi] && basename[fi] <= b'z' {
+                    // 小文字は大文字で正規化しておく
+                    b[fi] = basename[fi] - 0x20;
+                } else {
+                    b[fi] = basename[fi];
+                }
+            }
+        } else {
+            display_error!("File Not Found", cursor_y);
+        }
+        if let Some(extname) = extname {
+            for fi in 0..e.len() {
+                if extname.len() <= fi {
+                    break;
+                }
+                if b'a' <= extname[fi] && extname[fi] <= b'z' {
+                    e[fi] = extname[fi] - 0x20;
+                } else {
+                    e[fi] = extname[fi];
+                }
+            }
+        }
+        let mut target_finfo: Option<FileInfo> = None;
+        for findex in 0..MAX_FILE_INFO {
+            let finfo = unsafe {
+                *((ADR_DISKIMG + ADR_FILE_OFFSET + findex * core::mem::size_of::<FileInfo>())
+                    as *const FileInfo)
+            };
+            if finfo.name[0] == 0x00 {
+                break;
+            }
+            if finfo.name[0] != 0xe5 {
+                if (finfo.ftype & 0x18) == 0 {
+                    let mut filename_equal = true;
+                    for y in 0..finfo.name.len() {
+                        if finfo.name[y] != b[y] {
+                            filename_equal = false;
+                            break;
+                        }
+                    }
+                    for y in 0..finfo.ext.len() {
+                        if finfo.ext[y] != e[y] {
+                            filename_equal = false;
+                            break;
+                        }
+                    }
+                    if filename_equal {
+                        target_finfo = Some(finfo);
+                        break;
+                    }
+                }
+            }
+        }
+        if let Some(finfo) = target_finfo {
+            let content_length = finfo.size;
+            let mut cursor_x = 8;
+            for x in 0..content_length {
+                let chr = unsafe { *((finfo.content_addr() + x as usize) as *const u8) };
+                if chr == 0x09 {
+                    // タブ
+                    loop {
+                        write_with_bg!(
+                            sheet_manager,
+                            sheet_index,
+                            sheet.width,
+                            sheet.height,
+                            cursor_x,
+                            cursor_y,
+                            Color::White,
+                            Color::Black,
+                            1,
+                            " "
+                        );
+                        cursor_x += 8;
+                        if cursor_x == MAX_CURSOR_X {
+                            cursor_x = 8;
+                            cursor_y = newline(cursor_y, sheet_manager, sheet_index);
+                        }
+                        if (cursor_x - 8) & 0x1f == 0 {
+                            // 32で割り切れたらbreak
+                            break;
+                        }
+                    }
+                } else if chr == 0x0a {
+                    // 改行
+                    cursor_x = 8;
+                    cursor_y = newline(cursor_y, sheet_manager, sheet_index);
+                } else if chr == 0x0d {
+                    // 復帰
+                    // 何もしない
+                } else {
+                    write_with_bg!(
+                        sheet_manager,
+                        sheet_index,
+                        sheet.width,
+                        sheet.height,
+                        cursor_x,
+                        cursor_y,
+                        Color::White,
+                        Color::Black,
+                        1,
+                        "{}",
+                        chr as char
+                    );
+                    cursor_x += 8;
+                    if cursor_x == MAX_CURSOR_X {
+                        cursor_x = 8;
+                        cursor_y = newline(cursor_y, sheet_manager, sheet_index);
+                    }
+                }
+            }
+            cursor_y = newline(cursor_y, sheet_manager, sheet_index);
+        } else {
+            display_error!("File Not Found", cursor_y);
+        }
     } else {
         write_with_bg!(
             sheet_manager,
@@ -330,27 +486,4 @@ fn exec_cmd(
         cursor_y = newline(cursor_y, sheet_manager, sheet_index);
     }
     cursor_y
-}
-
-fn extract_cmd_index(cmdline: [u8; 30]) -> (usize, usize) {
-    // 空白(32)、0はとばす
-    let mut start: isize = -1;
-    let mut end: isize = -1;
-    for i in 0..cmdline.len() {
-        if start < 0 {
-            if cmdline[i] != 0 && cmdline[i] != 32 {
-                start = i as isize;
-                end = i as isize;
-            }
-        } else {
-            end = i as isize;
-            if cmdline[i] == 0 || cmdline[i] == 32 {
-                break;
-            }
-        }
-    }
-    (
-        (if start < 0 { 0 } else { start }) as usize,
-        (if end < 0 { 0 } else { end }) as usize,
-    )
 }
