@@ -50,7 +50,7 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
     let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
 
     let fat_addr = memman.alloc_4k(4 * MAX_FAT as u32).unwrap();
-    let mut fat = unsafe { &mut *(fat_addr as *mut [u32; (MAX_FAT)]) };
+    let fat = unsafe { &mut *(fat_addr as *mut [u32; (MAX_FAT)]) };
     read_fat(fat, unsafe {
         *((ADR_DISKIMG + 0x000200) as *const [u8; (MAX_FAT * 4)])
     });
@@ -336,7 +336,7 @@ fn exec_cmd(
                         "{:>8}.{:>3}   {:>7}",
                         from_utf8(&finfo.name).unwrap(),
                         from_utf8(&finfo.ext).unwrap(),
-                        finfo.size
+                        finfo.size.clone()
                     );
                     cursor_y = newline(cursor_y, sheet_manager, sheet_index);
                 }
@@ -475,6 +475,7 @@ fn exec_cmd(
                 }
             }
             cursor_y = newline(cursor_y, sheet_manager, sheet_index);
+            memman.free_4k(content_addr as u32, finfo.size).unwrap();
         } else {
             display_error!("File Not Found", cursor_y);
         }
