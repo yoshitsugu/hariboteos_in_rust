@@ -21,6 +21,7 @@ const MIN_CURSOR_Y: isize = 28;
 const MAX_CURSOR_X: isize = 8 + 240;
 const MAX_CURSOR_Y: isize = 28 + 112;
 pub const CONSOLE_ADDR: usize = 0x0fec;
+const MAX_CMD: usize = 30;
 
 #[no_mangle]
 pub extern "C" fn console_put_char(console: &mut Console, char_num: u8, move_cursor: bool) {
@@ -118,8 +119,7 @@ impl Console {
         }
     }
 
-    fn run_cmd(&mut self, cmdline: [u8; 30], memtotal: usize, fat: &[u32; MAX_FAT]) {
-        let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
+    fn run_cmd(&mut self, cmdline: [u8; MAX_CMD], memtotal: usize, fat: &[u32; MAX_FAT]) {
         self.cursor_x = 8;
         let cmdline_strs = cmdline.split(|s| *s == 0 || *s == b' ');
         let mut cmdline_strs = cmdline_strs.skip_while(|cmd| cmd.len() == 0);
@@ -128,32 +128,18 @@ impl Console {
             self.display_error("Bad Command");
             return;
         }
-        let cmd = from_utf8(&cmd.unwrap()).unwrap();
-        if cmd == "mem" {
+        let cmd = cmd.unwrap();
+        let cmd_str = from_utf8(&cmd).unwrap();
+        if cmd_str == "mem" {
             self.cmd_mem(memtotal);
-        } else if cmd == "clear" {
+        } else if cmd_str == "clear" {
             self.cmd_clear();
-        } else if cmd == "ls" {
+        } else if cmd_str == "ls" {
             self.cmd_ls();
-        } else if cmd == "cat" {
+        } else if cmd_str == "cat" {
             self.cmd_cat(cmdline_strs, fat);
-        } else if cmd == "hlt" {
-            let finfo = search_file(b"hlt.bin");
-            if finfo.is_none() {
-                self.display_error("File Not Found");
-                return;
-            }
-            let finfo = finfo.unwrap();
-            let content_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
-            finfo.load_file(content_addr, fat, ADR_DISKIMG + 0x003e00);
-            let gdt_offset = 1003; // 1,2,3はdesciptor_table.rsで、1002まではmt.rsで使用済
-            let gdt = unsafe { &mut *((ADR_GDT + gdt_offset * 8) as *mut SegmentDescriptor) };
-            *gdt = SegmentDescriptor::new(finfo.size - 1, content_addr as i32, AR_CODE32_ER);
-            farcall(0, gdt_offset * 8);
-            memman.free_4k(content_addr as u32, finfo.size).unwrap();
-            self.newline();
         } else {
-            self.display_error("Bad Command");
+            self.cmd_app(&cmd, fat);
         }
     }
 
@@ -307,6 +293,34 @@ impl Console {
         }
     }
 
+    fn cmd_app<'a>(&mut self, filename: &'a [u8], fat: &[u32; MAX_FAT]) {
+        let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
+        let mut finfo = search_file(filename);
+        if finfo.is_none() && filename[filename.len() - 2] != b'.' {
+            let mut filename_ext = [b' '; MAX_CMD + 4];
+            let filename_ext = &mut filename_ext[0..(filename.len() + 4)];
+            filename_ext[..filename.len()].copy_from_slice(filename);
+            filename_ext[filename.len()] = b'.';
+            filename_ext[filename.len() + 1] = b'b';
+            filename_ext[filename.len() + 2] = b'i';
+            filename_ext[filename.len() + 3] = b'n';
+            finfo = search_file(filename_ext);
+        }
+        if finfo.is_none() {
+            self.display_error("Bad Command");
+            return;
+        }
+        let finfo = finfo.unwrap();
+        let content_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
+        finfo.load_file(content_addr, fat, ADR_DISKIMG + 0x003e00);
+        let gdt_offset = 1003; // 1,2,3はdesciptor_table.rsで、1002まではmt.rsで使用済
+        let gdt = unsafe { &mut *((ADR_GDT + gdt_offset * 8) as *mut SegmentDescriptor) };
+        *gdt = SegmentDescriptor::new(finfo.size - 1, content_addr as i32, AR_CODE32_ER);
+        farcall(0, gdt_offset * 8);
+        memman.free_4k(content_addr as u32, finfo.size).unwrap();
+        self.newline();
+    }
+
     fn display_error(&mut self, error_message: &'static str) {
         let sheet_manager = unsafe { &mut *(self.sheet_manager_addr as *mut SheetManager) };
         let sheet = sheet_manager.sheets_data[self.sheet_index];
@@ -340,7 +354,7 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
     }
 
     // コマンドを保持するための配列
-    let mut cmdline: [u8; 30] = [0; 30];
+    let mut cmdline: [u8; MAX_CMD] = [0; MAX_CMD];
 
     let sheet_manager_addr = unsafe { SHEET_MANAGER_ADDR };
     let sheet_manager = unsafe { &mut *(sheet_manager_addr as *mut SheetManager) };
@@ -401,7 +415,7 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
                         console.put_char(b' ', false);
                         console.newline();
                         console.run_cmd(cmdline, memtotal, fat);
-                        cmdline = [b' '; 30];
+                        cmdline = [b' '; MAX_CMD];
                         // プロンプト表示
                         console.show_prompt();
                         console.cursor_x = 16;
