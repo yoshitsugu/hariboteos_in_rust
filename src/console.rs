@@ -21,13 +21,47 @@ const MIN_CURSOR_Y: isize = 28;
 const MAX_CURSOR_X: isize = 8 + 240;
 const MAX_CURSOR_Y: isize = 28 + 112;
 pub const CONSOLE_ADDR: usize = 0x0fec;
+pub const CS_BASE_ADDR: usize = 0xfe8;
 const MAX_CMD: usize = 30;
 
 #[no_mangle]
-pub extern "C" fn console_put_char(console: &mut Console, char_num: u8, move_cursor: bool) {
-    console.put_char(char_num, move_cursor);
+pub extern "C" fn bin_api(
+    _edi: i32,
+    _esi: i32,
+    _ebp: i32,
+    _esp: i32,
+    ebx: i32,
+    edx: i32,
+    ecx: i32,
+    eax: i32,
+) {
+    let cs_base = unsafe { *(CS_BASE_ADDR as *const usize) };
+    let console_addr = unsafe { *(CONSOLE_ADDR as *const usize) };
+    let console = unsafe { &mut *(console_addr as *mut Console) };
+    if edx == 1 {
+        // 1文字出力
+        console.put_char(eax as u8, true);
+    } else if edx == 2 {
+        // 0がくるまで1文字ずつ出力
+        let mut i = 0;
+        loop {
+            let chr = unsafe { *((ebx as usize + i as usize + cs_base) as *const u8) };
+            if chr == 0 {
+                break;
+            }
+            console.put_char(chr, true);
+            i += 1;
+        }
+    } else if edx == 3 {
+        // 指定した文字数出力
+        for i in 0..ecx {
+            let chr = unsafe { *((ebx as usize + i as usize + cs_base) as *const u8) };
+            console.put_char(chr, true);
+        }
+    }
 }
 
+#[repr(C, packed)]
 pub struct Console {
     pub cursor_x: isize,
     pub cursor_y: isize,
@@ -312,6 +346,10 @@ impl Console {
         }
         let finfo = finfo.unwrap();
         let content_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
+        {
+            let ptr = unsafe { &mut *(CS_BASE_ADDR as *mut usize) };
+            *ptr = content_addr;
+        }
         finfo.load_file(content_addr, fat, ADR_DISKIMG + 0x003e00);
         let gdt_offset = 1003; // 1,2,3はdesciptor_table.rsで、1002まではmt.rsで使用済
         let gdt = unsafe { &mut *((ADR_GDT + gdt_offset * 8) as *mut SegmentDescriptor) };

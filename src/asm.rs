@@ -155,16 +155,14 @@ macro_rules! handler {
 }
 
 #[naked]
-pub extern "C" fn interrupt_print_char() {
-    use crate::console::CONSOLE_ADDR;
+pub extern "C" fn interrupt_bin_api() {
     unsafe {
-        asm!("STI" : : : : "intel");
-        asm!("PUSH 1" : : : : "intel");
-        asm!("AND EAX, 0xff" : : : : "intel");
-        asm!("PUSH EAX" : : : : "intel");
-        asm!("PUSH DWORD PTR [$0]" : : "i"(CONSOLE_ADDR) : : "intel");
-        asm!("CALL console_put_char" : : : : "intel");
-        asm!("ADD ESP, 12" : : : : "intel");
-        asm!("IRETD" : : : : "intel");
+        asm!("STI
+              PUSHAD
+              PUSHAD
+              CALL bin_api
+              ADD ESP, 32
+              POPAD
+              IRETD" : : : : "intel");
     }
 }

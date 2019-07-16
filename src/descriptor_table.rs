@@ -3,7 +3,7 @@ use crate::handler;
 use crate::keyboard::inthandler21;
 use crate::mouse::inthandler2c;
 use crate::timer::inthandler20;
-use asm::{interrupt_print_char, load_gdtr, load_idtr};
+use asm::{interrupt_bin_api, load_gdtr, load_idtr};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
@@ -94,7 +94,7 @@ pub fn init() {
     *idt = GateDescriptor::new(handler!(inthandler20) as u32, 2 * 8, AR_INTGATE32);
 
     let idt = unsafe { &mut *((ADR_IDT + 0x40 * 8) as *mut GateDescriptor) };
-    *idt = GateDescriptor::new(interrupt_print_char as u32, 2 * 8, AR_INTGATE32);
+    *idt = GateDescriptor::new(interrupt_bin_api as u32, 2 * 8, AR_INTGATE32);
 
     load_idtr(LIMIT_IDT, ADR_IDT);
 }
