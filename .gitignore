@@ -3,3 +3,5 @@
 /target
 **/*.rs.bk
 Cargo.lock
+hello/target
+hello/Cargo.lock

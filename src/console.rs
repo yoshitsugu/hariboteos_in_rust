@@ -354,6 +354,15 @@ impl Console {
         let gdt_offset = 1003; // 1,2,3はdesciptor_table.rsで、1002まではmt.rsで使用済
         let gdt = unsafe { &mut *((ADR_GDT + gdt_offset * 8) as *mut SegmentDescriptor) };
         *gdt = SegmentDescriptor::new(finfo.size - 1, content_addr as i32, AR_CODE32_ER);
+        // kernel.ldを使ってリンクされたファイルなら最初の6バイトを置き換える
+        if finfo.size >= 8 {
+            // 4から7バイト目で判定
+            let bytes = unsafe { *((content_addr + 4) as *const [u8; 4]) };
+            if bytes == *b"Hari" {
+                let pre = unsafe { &mut *(content_addr as *mut [u8; 6]) };
+                *pre = [0xe8, 0x16, 0x00, 0x00, 0x00, 0xcb];
+            }
+        }
         farcall(0, gdt_offset * 8);
         memman.free_4k(content_addr as u32, finfo.size).unwrap();
         self.newline();

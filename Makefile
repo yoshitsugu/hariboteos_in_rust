@@ -12,11 +12,12 @@ $(OUTPUT_DIR)/%.bin: $(ASM_DIR)/%.asm Makefile $(OUTPUT_DIR_KEEP)
 $(OUTPUT_DIR)/haribote.sys : $(OUTPUT_DIR)/asmhead.bin $(OUTPUT_DIR)/kernel.bin
 	cat $^ > $@
 
-$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/hello.bin  $(OUTPUT_DIR)/hello2.bin Makefile
+$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/hello.bin  $(OUTPUT_DIR)/hello2.bin $(OUTPUT_DIR)/hello3.bin Makefile
 	mformat -f 1440 -C -B $< -i $@ ::
 	mcopy $(OUTPUT_DIR)/haribote.sys -i $@ ::
 	mcopy $(OUTPUT_DIR)/hello.bin -i $@ ::
 	mcopy $(OUTPUT_DIR)/hello2.bin -i $@ ::
+	mcopy $(OUTPUT_DIR)/hello3.bin -i $@ ::
 
 asm :
 	make $(OUTPUT_DIR)/ipl.bin 
@@ -45,3 +46,10 @@ $(OUTPUT_DIR)/libharibote_os.a: $(OUTPUT_DIR_KEEP)
 $(OUTPUT_DIR_KEEP):
 	mkdir -p $(OUTPUT_DIR)
 	touch $@
+
+$(OUTPUT_DIR)/libhello.a: $(OUTPUT_DIR_KEEP)
+	cd hello/ && cargo xbuild --target-dir ../$(OUTPUT_DIR)
+	cp $(OUTPUT_DIR)/i686-haribote/debug/libhello.a $(OUTPUT_DIR)/
+
+$(OUTPUT_DIR)/hello3.bin: $(OUTPUT_DIR)/libhello.a $(OUTPUT_DIR_KEEP)
+	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $<  -o $@
