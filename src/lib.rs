@@ -459,7 +459,7 @@ pub extern "C" fn haribote_os() {
 fn panic(info: &PanicInfo) -> ! {
     let mut writer = ScreenWriter::new(
         None,
-        vga::Color::LightRed,
+        Color::LightRed,
         0,
         0,
         *SCREEN_WIDTH as usize,
