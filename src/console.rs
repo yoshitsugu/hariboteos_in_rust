@@ -1,7 +1,7 @@
 use core::str::from_utf8;
 
-use crate::asm::{cli, farcall, sti};
-use crate::descriptor_table::{SegmentDescriptor, ADR_GDT, AR_CODE32_ER};
+use crate::asm::{cli, sti};
+use crate::descriptor_table::{SegmentDescriptor, ADR_GDT, AR_CODE32_ER, AR_DATA32_RW};
 use crate::fifo::Fifo;
 use crate::file::*;
 use crate::keyboard::KEYBOARD_OFFSET;
@@ -23,6 +23,11 @@ const MAX_CURSOR_Y: isize = 28 + 112;
 pub const CONSOLE_ADDR: usize = 0x0fec;
 pub const CS_BASE_ADDR: usize = 0xfe8;
 const MAX_CMD: usize = 30;
+const APP_MEM_SIZE: usize = 64 * 1024;
+
+extern "C" {
+    fn _start_app(eip: i32, cs: i32, esp: i32, ds: i32, tss_esp_addr: i32);
+}
 
 #[no_mangle]
 pub extern "C" fn bin_api(
@@ -34,7 +39,7 @@ pub extern "C" fn bin_api(
     edx: i32,
     ecx: i32,
     eax: i32,
-) {
+) -> usize {
     let cs_base = unsafe { *(CS_BASE_ADDR as *const usize) };
     let console_addr = unsafe { *(CONSOLE_ADDR as *const usize) };
     let console = unsafe { &mut *(console_addr as *mut Console) };
@@ -54,11 +59,14 @@ pub extern "C" fn bin_api(
         }
     } else if edx == 3 {
         // 指定した文字数出力
-        for i in 0..ecx {
-            let chr = unsafe { *((ebx as usize + i as usize + cs_base) as *const u8) };
-            console.put_char(chr, true);
-        }
+        console.put_string(ebx as usize, ecx as usize, 8);
+    } else if edx == 4 {
+        let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+        let task_index = task_manager.now_index();
+        let task = &task_manager.tasks_data[task_index];
+        return unsafe { &(task.tss.esp0) } as *const i32 as usize;
     }
+    0
 }
 
 #[repr(C, packed)]
@@ -288,37 +296,8 @@ impl Console {
         if let Some(finfo) = target_finfo {
             let content_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
             finfo.load_file(content_addr, fat, ADR_DISKIMG + 0x003e00);
-            self.cursor_x = 8;
-            for x in 0..finfo.size {
-                let chr = unsafe { *((content_addr + x as usize) as *const u8) };
-                if chr == 0x09 {
-                    // タブ
-                    loop {
-                        self.put_char(b' ', true);
-                        if self.cursor_x == MAX_CURSOR_X {
-                            self.cursor_x = 8;
-                            self.newline();
-                        }
-                        if (self.cursor_x - 8) & 0x1f == 0 {
-                            // 32で割り切れたらbreak
-                            break;
-                        }
-                    }
-                } else if chr == 0x0a {
-                    // 改行
-                    self.cursor_x = 8;
-                    self.newline();
-                } else if chr == 0x0d {
-                    // 復帰
-                    // 何もしない
-                } else {
-                    self.put_char(chr, true);
-                    if self.cursor_x == MAX_CURSOR_X {
-                        self.cursor_x = 8;
-                        self.newline()
-                    }
-                }
-            }
+            self.put_string(content_addr, finfo.size as usize, 8);
+
             self.newline();
             memman.free_4k(content_addr as u32, finfo.size).unwrap();
         } else {
@@ -327,10 +306,20 @@ impl Console {
         }
     }
 
-    fn cmd_app<'a>(&mut self, filename: &'a [u8], fat: &[u32; MAX_FAT]) {
+    fn display_error(&mut self, error_message: &'static str) {
+        self.put_string(
+            error_message.as_bytes().as_ptr() as usize,
+            error_message.len(),
+            8,
+        );
+        self.newline();
+        self.newline();
+    }
+
+    pub fn cmd_app<'a>(&mut self, filename: &'a [u8], fat: &[u32; MAX_FAT]) {
         let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
         let mut finfo = search_file(filename);
-        if finfo.is_none() && filename[filename.len() - 2] != b'.' {
+        if finfo.is_none() && filename.len() > 1 && filename[filename.len() - 2] != b'.' {
             let mut filename_ext = [b' '; MAX_CMD + 4];
             let filename_ext = &mut filename_ext[0..(filename.len() + 4)];
             filename_ext[..filename.len()].copy_from_slice(filename);
@@ -346,14 +335,22 @@ impl Console {
         }
         let finfo = finfo.unwrap();
         let content_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
+        let app_mem_addr = memman.alloc_4k(APP_MEM_SIZE as u32).unwrap() as usize;
         {
             let ptr = unsafe { &mut *(CS_BASE_ADDR as *mut usize) };
             *ptr = content_addr;
         }
         finfo.load_file(content_addr, fat, ADR_DISKIMG + 0x003e00);
-        let gdt_offset = 1003; // 1,2,3はdesciptor_table.rsで、1002まではmt.rsで使用済
-        let gdt = unsafe { &mut *((ADR_GDT + gdt_offset * 8) as *mut SegmentDescriptor) };
-        *gdt = SegmentDescriptor::new(finfo.size - 1, content_addr as i32, AR_CODE32_ER);
+        let content_gdt = 1003; // 1,2,3はdesciptor_table.rsで、1002まではmt.rsで使用済
+        let gdt = unsafe { &mut *((ADR_GDT + content_gdt * 8) as *mut SegmentDescriptor) };
+        *gdt = SegmentDescriptor::new(finfo.size - 1, content_addr as i32, AR_CODE32_ER + 0x60);
+        let app_gdt = 1004;
+        let gdt = unsafe { &mut *((ADR_GDT + app_gdt * 8) as *mut SegmentDescriptor) };
+        *gdt = SegmentDescriptor::new(
+            APP_MEM_SIZE as u32 - 1,
+            app_mem_addr as i32,
+            AR_DATA32_RW + 0x60,
+        );
         // kernel.ldを使ってリンクされたファイルなら最初の6バイトを置き換える
         if finfo.size >= 8 {
             // 4から7バイト目で判定
@@ -363,29 +360,63 @@ impl Console {
                 *pre = [0xe8, 0x16, 0x00, 0x00, 0x00, 0xcb];
             }
         }
-        farcall(0, gdt_offset * 8);
+        let esp0_addr: usize;
+        {
+            let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+            let task_index = task_manager.now_index();
+
+            let task = &task_manager.tasks_data[task_index];
+            esp0_addr = unsafe { &(task.tss.esp0) } as *const i32 as usize;
+        }
+
+        unsafe {
+            _start_app(
+                0,
+                content_gdt * 8,
+                APP_MEM_SIZE as i32,
+                app_gdt * 8,
+                esp0_addr as i32,
+            );
+        }
         memman.free_4k(content_addr as u32, finfo.size).unwrap();
+        memman
+            .free_4k(app_mem_addr as u32, APP_MEM_SIZE as u32)
+            .unwrap();
         self.newline();
     }
 
-    fn display_error(&mut self, error_message: &'static str) {
-        let sheet_manager = unsafe { &mut *(self.sheet_manager_addr as *mut SheetManager) };
-        let sheet = sheet_manager.sheets_data[self.sheet_index];
-        write_with_bg!(
-            sheet_manager,
-            self.sheet_index,
-            sheet.width,
-            sheet.height,
-            8,
-            self.cursor_y,
-            Color::White,
-            Color::Black,
-            30,
-            "{}",
-            error_message
-        );
-        self.newline();
-        self.newline();
+    fn put_string(&mut self, string_addr: usize, string_length: usize, initial_x: usize) {
+        self.cursor_x = initial_x as isize;
+        for x in 0..string_length {
+            let chr = unsafe { *((string_addr + x as usize) as *const u8) };
+            if chr == 0x09 {
+                // タブ
+                loop {
+                    self.put_char(b' ', true);
+                    if self.cursor_x == MAX_CURSOR_X {
+                        self.cursor_x = 8;
+                        self.newline();
+                    }
+                    if (self.cursor_x - 8) & 0x1f == 0 {
+                        // 32で割り切れたらbreak
+                        break;
+                    }
+                }
+            } else if chr == 0x0a {
+                // 改行
+                self.cursor_x = 8;
+                self.newline();
+            } else if chr == 0x0d {
+                // 復帰
+                // 何もしない
+            } else {
+                self.put_char(chr, true);
+                if self.cursor_x == MAX_CURSOR_X {
+                    self.cursor_x = 8;
+                    self.newline();
+                }
+            }
+        }
     }
 }
 
@@ -566,4 +597,19 @@ fn search_file(filename: &[u8]) -> Option<FileInfo> {
         }
     }
     target_finfo
+}
+
+pub extern "C" fn inthandler0d() -> usize {
+    exception_handler(b"INT 0D: \n General Protected Exception.\n")
+}
+
+pub extern "C" fn exception_handler(message: &[u8]) -> usize {
+    let console_addr = unsafe { *(CONSOLE_ADDR as *const usize) };
+    let console = unsafe { &mut *(console_addr as *mut Console) };
+    console.newline();
+    console.put_string(message.as_ptr() as usize, message.len(), 8);
+    let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+    let task_index = task_manager.now_index();
+    let task = &task_manager.tasks_data[task_index];
+    return unsafe { &(task.tss.esp0) } as *const i32 as usize;
 }

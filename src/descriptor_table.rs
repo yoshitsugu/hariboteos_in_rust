@@ -1,12 +1,13 @@
 use crate::asm;
-use crate::handler;
+use crate::console::inthandler0d;
 use crate::keyboard::inthandler21;
 use crate::mouse::inthandler2c;
 use crate::timer::inthandler20;
+use crate::{exception_handler, handler};
 use asm::{interrupt_bin_api, load_gdtr, load_idtr};
 
 #[derive(Debug, Clone, Copy)]
-#[repr(C, packed)]
+#[repr(C)]
 pub struct SegmentDescriptor {
     limit_low: u16,
     base_low: u16,
@@ -63,7 +64,7 @@ const ADR_BOTPAK: i32 = 0x00280000;
 const LIMIT_BOTPAK: u32 = 0x0007ffff;
 pub const AR_TSS32: i32 = 0x0089;
 const AR_INTGATE32: i32 = 0x008e;
-const AR_DATA32_RW: i32 = 0x4092;
+pub const AR_DATA32_RW: i32 = 0x4092;
 pub const AR_CODE32_ER: i32 = 0x409a;
 
 pub fn init() {
@@ -86,15 +87,16 @@ pub fn init() {
     }
 
     // 割り込みの設定
+    let idt = unsafe { &mut *((ADR_IDT + 0x0d * 8) as *mut GateDescriptor) };
+    *idt = GateDescriptor::new(exception_handler!(inthandler0d) as u32, 2 * 8, AR_INTGATE32);
     let idt = unsafe { &mut *((ADR_IDT + 0x21 * 8) as *mut GateDescriptor) };
     *idt = GateDescriptor::new(handler!(inthandler21) as u32, 2 * 8, AR_INTGATE32);
     let idt = unsafe { &mut *((ADR_IDT + 0x2c * 8) as *mut GateDescriptor) };
     *idt = GateDescriptor::new(handler!(inthandler2c) as u32, 2 * 8, AR_INTGATE32);
     let idt = unsafe { &mut *((ADR_IDT + 0x20 * 8) as *mut GateDescriptor) };
     *idt = GateDescriptor::new(handler!(inthandler20) as u32, 2 * 8, AR_INTGATE32);
-
     let idt = unsafe { &mut *((ADR_IDT + 0x40 * 8) as *mut GateDescriptor) };
-    *idt = GateDescriptor::new(interrupt_bin_api as u32, 2 * 8, AR_INTGATE32);
+    *idt = GateDescriptor::new(interrupt_bin_api as u32, 2 * 8, AR_INTGATE32 + 0x60);
 
     load_idtr(LIMIT_IDT, ADR_IDT);
 }

@@ -94,13 +94,6 @@ pub fn load_tr(adr: i32) {
     }
 }
 
-// #[naked]
-// pub fn farjmp(eip: i32, cs: i32) {
-//     unsafe {
-//         asm!("LJMP $0,$1" :: "i"(cs), "i"(eip));
-//     }
-// }
-
 #[repr(C, packed)]
 struct Jump {
     eip: i32,
@@ -154,15 +147,72 @@ macro_rules! handler {
     }}
 }
 
+#[macro_export]
+macro_rules! exception_handler {
+    ($name: ident) => {{
+      #[naked]
+      pub extern "C" fn wrapper() {
+          let mut ret: usize;
+          unsafe {
+              asm!("
+                STI
+      		    PUSH	ES
+      		    PUSH	DS
+      		    PUSHAD
+      		    MOV		EAX,ESP
+      		    PUSH	EAX
+      		    MOV		AX,SS
+      		    MOV		DS,AX
+      		    MOV		ES,AX": : : : "intel", "volatile");
+              asm!("CALL $0" : "={EAX}"(ret) : "r"($name as extern "C" fn() -> usize) : : "intel");
+              if ret == 0 {
+                  asm!("
+                    POP		EAX
+      		        POPAD
+      		        POP		DS
+      		        POP		ES
+      		        ADD		ESP,4
+      		        IRETD
+                    " : : : : "intel");
+              } else {
+                  asm!("
+                  MOV ESP,[EAX]
+                  POPAD
+                  " : : "{EAX}"(ret) : : "intel");
+              }
+          }
+      }
+      wrapper
+      }}
+}
+
 #[naked]
+#[no_mangle]
 pub extern "C" fn interrupt_bin_api() {
+    let mut ret: usize;
     unsafe {
         asm!("STI
+              PUSH  DS
+              PUSH  ES
               PUSHAD
               PUSHAD
-              CALL bin_api
-              ADD ESP, 32
-              POPAD
-              IRETD" : : : : "intel");
+              MOV   AX,SS
+              MOV   DS,AX
+              MOV   ES,AX" : : : : "intel");
+        asm!("CALL  bin_api" : "={EAX}"(ret) : : : "intel");
+        if ret == 0 {
+            asm!("
+                ADD ESP,32
+                POPAD
+                POP ES
+                POP DS
+                IRETD
+            " : : : : "intel");
+        } else {
+            asm!("
+                MOV ESP,[EAX]
+                POPAD
+                " : : "{EAX}"(ret) : : "intel");
+        }
     }
 }

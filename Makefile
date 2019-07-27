@@ -9,15 +9,17 @@ default:
 $(OUTPUT_DIR)/%.bin: $(ASM_DIR)/%.asm Makefile $(OUTPUT_DIR_KEEP)
 	nasm $< -o $@
 
+
 $(OUTPUT_DIR)/haribote.sys : $(OUTPUT_DIR)/asmhead.bin $(OUTPUT_DIR)/kernel.bin
 	cat $^ > $@
 
-$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/hello.bin  $(OUTPUT_DIR)/hello2.bin $(OUTPUT_DIR)/hello3.bin Makefile
+$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/hello.bin  $(OUTPUT_DIR)/hello2.bin $(OUTPUT_DIR)/hello3.bin $(OUTPUT_DIR)/crack2.bin Makefile
 	mformat -f 1440 -C -B $< -i $@ ::
 	mcopy $(OUTPUT_DIR)/haribote.sys -i $@ ::
 	mcopy $(OUTPUT_DIR)/hello.bin -i $@ ::
 	mcopy $(OUTPUT_DIR)/hello2.bin -i $@ ::
 	mcopy $(OUTPUT_DIR)/hello3.bin -i $@ ::
+	mcopy $(OUTPUT_DIR)/crack2.bin -i $@ ::
 
 asm :
 	make $(OUTPUT_DIR)/ipl.bin 
@@ -27,7 +29,7 @@ img :
 
 run :
 	make img
-	qemu-system-i386 -m 32 -fda $(IMG)
+	qemu-system-i386 -m 32 -fda $(IMG) -no-reboot
 
 debug :
 	make img
@@ -36,8 +38,11 @@ debug :
 clean :
 	rm -rf $(OUTPUT_DIR)/*
 
-$(OUTPUT_DIR)/kernel.bin: $(OUTPUT_DIR)/libharibote_os.a $(OUTPUT_DIR_KEEP)
-	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $<  -o $@
+$(OUTPUT_DIR)/asmfunc.o: $(ASM_DIR)/asmfunc.asm Makefile $(OUTPUT_DIR_KEEP)
+	nasm -f elf $< -o $@
+
+$(OUTPUT_DIR)/kernel.bin: $(OUTPUT_DIR)/libharibote_os.a $(OUTPUT_DIR)/asmfunc.o $(OUTPUT_DIR_KEEP)
+	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $< $(OUTPUT_DIR)/asmfunc.o -o $@
 
 $(OUTPUT_DIR)/libharibote_os.a: $(OUTPUT_DIR_KEEP)
 	cargo xbuild --target-dir $(OUTPUT_DIR)
