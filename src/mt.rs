@@ -180,7 +180,7 @@ impl TaskManager {
         self.switchsub();
         let task = self.tasks_data[task_index];
         load_tr(task.select);
-        let timer_index_ts = TIMER_MANAGER.lock().alloc().unwrap();
+        let timer_index_ts = TIMER_MANAGER.lock().alloc()?;
         TIMER_MANAGER
             .lock()
             .set_time(timer_index_ts, task.priority as u32);
@@ -188,9 +188,9 @@ impl TaskManager {
             MT_TIMER_INDEX = timer_index_ts;
         }
         {
-            let idle_index = self.alloc().unwrap();
+            let idle_index = self.alloc()?;
             let mut idle = &mut self.tasks_data[idle_index];
-            idle.tss.esp = memman.alloc_4k(64 * 1024).unwrap() as i32 + 64 * 1024;
+            idle.tss.esp = memman.alloc_4k(64 * 1024)? as i32 + 64 * 1024;
             idle.tss.eip = task_idle as i32;
             idle.tss.es = 1 * 8;
             idle.tss.cs = 2 * 8;
