@@ -324,9 +324,9 @@ impl Console {
             let filename_ext = &mut filename_ext[0..(filename.len() + 4)];
             filename_ext[..filename.len()].copy_from_slice(filename);
             filename_ext[filename.len()] = b'.';
-            filename_ext[filename.len() + 1] = b'b';
-            filename_ext[filename.len() + 2] = b'i';
-            filename_ext[filename.len() + 3] = b'n';
+            filename_ext[filename.len() + 1] = b'h';
+            filename_ext[filename.len() + 2] = b'r';
+            filename_ext[filename.len() + 3] = b'b';
             finfo = search_file(filename_ext);
         }
         if finfo.is_none() {
@@ -335,53 +335,73 @@ impl Console {
         }
         let finfo = finfo.unwrap();
         let content_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
-        let app_mem_addr = memman.alloc_4k(APP_MEM_SIZE as u32).unwrap() as usize;
-        {
-            let ptr = unsafe { &mut *(CS_BASE_ADDR as *mut usize) };
-            *ptr = content_addr;
-        }
         finfo.load_file(content_addr, fat, ADR_DISKIMG + 0x003e00);
-        let content_gdt = 1003; // 1,2,3はdesciptor_table.rsで、1002まではmt.rsで使用済
-        let gdt = unsafe { &mut *((ADR_GDT + content_gdt * 8) as *mut SegmentDescriptor) };
-        *gdt = SegmentDescriptor::new(finfo.size - 1, content_addr as i32, AR_CODE32_ER + 0x60);
-        let app_gdt = 1004;
-        let gdt = unsafe { &mut *((ADR_GDT + app_gdt * 8) as *mut SegmentDescriptor) };
-        *gdt = SegmentDescriptor::new(
-            APP_MEM_SIZE as u32 - 1,
-            app_mem_addr as i32,
-            AR_DATA32_RW + 0x60,
-        );
-        let esp0_addr: usize;
-        {
-            let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
-            let task_index = task_manager.now_index();
 
-            let task = &task_manager.tasks_data[task_index];
-            esp0_addr = unsafe { &(task.tss.esp0) } as *const i32 as usize;
-        }
-        // kernel.ldを使ってリンクされたファイルならジャンプ先を調整する
+        // kernel.ldを使ってリンクされたファイルのみ実行可能
         let mut app_eip = 0;
+        let content_gdt = 1003;
+        let app_gdt = 1004;
+        let mut app_mem_addr = 0;
         if finfo.size >= 8 {
             // 4から7バイト目で判定
             let bytes = unsafe { *((content_addr + 4) as *const [u8; 4]) };
             if bytes == *b"Hari" {
                 app_eip = 0x1b;
+                let segment_size = unsafe { *((content_addr + 0x0000) as *const usize) };
+                let esp = unsafe { *((content_addr + 0x000c) as *const usize) };
+                let data_size = unsafe { *((content_addr + 0x0010) as *const usize) };
+                let content_data_addr = unsafe { *((content_addr + 0x0014) as *const usize) };
+
+                let app_mem_addr = memman.alloc_4k(segment_size as u32).unwrap() as usize;
+                let ptr = unsafe { &mut *(CS_BASE_ADDR as *mut usize) };
+                *ptr = app_mem_addr;
+
+                let gdt = unsafe { &mut *((ADR_GDT + content_gdt * 8) as *mut SegmentDescriptor) };
+                *gdt = SegmentDescriptor::new(
+                    finfo.size - 1,
+                    content_addr as i32,
+                    AR_CODE32_ER + 0x60,
+                );
+                let gdt = unsafe { &mut *((ADR_GDT + app_gdt * 8) as *mut SegmentDescriptor) };
+                *gdt = SegmentDescriptor::new(
+                    segment_size as u32 - 1,
+                    app_mem_addr as i32,
+                    AR_DATA32_RW + 0x60,
+                );
+
+                for i in 0..data_size {
+                    let app_ptr = unsafe { &mut *((app_mem_addr + esp + i) as *mut u8) };
+                    *app_ptr = unsafe { *((content_addr + content_data_addr + i) as *const u8) };
+                }
             }
         }
-        unsafe {
-            _start_app(
-                app_eip,
-                content_gdt * 8,
-                APP_MEM_SIZE as i32,
-                app_gdt * 8,
-                esp0_addr as i32,
-            );
+
+        if app_eip > 0 {
+            let esp0_addr: usize;
+            let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+            let task_index = task_manager.now_index();
+
+            let task = &task_manager.tasks_data[task_index];
+            let esp0_addr = unsafe { &(task.tss.esp0) } as *const i32 as usize;
+            unsafe {
+                _start_app(
+                    app_eip,
+                    content_gdt * 8,
+                    APP_MEM_SIZE as i32,
+                    app_gdt * 8,
+                    esp0_addr as i32,
+                );
+            }
+            self.newline();
+        } else {
+            self.display_error("Bad Format");
         }
         memman.free_4k(content_addr as u32, finfo.size).unwrap();
-        memman
-            .free_4k(app_mem_addr as u32, APP_MEM_SIZE as u32)
-            .unwrap();
-        self.newline();
+        if app_mem_addr > 0 {
+            memman
+                .free_4k(app_mem_addr as u32, APP_MEM_SIZE as u32)
+                .unwrap();
+        }
     }
 
     pub fn put_string(&mut self, string_addr: usize, string_length: usize, initial_x: usize) {

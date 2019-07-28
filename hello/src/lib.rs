@@ -7,13 +7,8 @@ use core::panic::PanicInfo;
 
 #[no_mangle]
 #[start]
-pub extern "C" fn haribote_os() {
-    unsafe { *(0x00102600 as *mut u8) = 0 };
-    put_char(b'h');
-    put_char(b'e');
-    put_char(b'l');
-    put_char(b'l');
-    put_char(b'o');
+pub extern "C" fn hrmain() {
+    put_string(b"hello".as_ptr() as usize);
     end()
 }
 
@@ -23,6 +18,15 @@ fn put_char(c: u8) {
         asm!("MOV EDX,1
               MOV AL,[$0]
               INT 0x40" : : "r"(&c) : : "intel");
+    }
+}
+
+#[naked]
+fn put_string(string_ptr: usize) {
+    unsafe {
+        asm!("MOV EDX,2
+              MOV EBX,[$0]
+              INT 0x40" : : "r"(&string_ptr) : : "intel");
     }
 }
 

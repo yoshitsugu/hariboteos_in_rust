@@ -7,19 +7,20 @@ default:
 	make img
 
 $(OUTPUT_DIR)/%.bin: $(ASM_DIR)/%.asm Makefile $(OUTPUT_DIR_KEEP)
-	nasm $< -o $@
+	nasm  $< -o $@
 
+$(OUTPUT_DIR)/%.hrb: $(ASM_DIR)/%.asm Makefile $(OUTPUT_DIR_KEEP)
+	nasm -f elf $< -o $(OUTPUT_DIR)/$*.o
+	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $(OUTPUT_DIR)/$*.o -o $@
 
 $(OUTPUT_DIR)/haribote.sys : $(OUTPUT_DIR)/asmhead.bin $(OUTPUT_DIR)/kernel.bin
 	cat $^ > $@
 
-$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/hello.bin  $(OUTPUT_DIR)/hello2.bin $(OUTPUT_DIR)/hello3.bin $(OUTPUT_DIR)/crack2.bin Makefile
+$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/hello.hrb  $(OUTPUT_DIR)/rs.hrb Makefile
 	mformat -f 1440 -C -B $< -i $@ ::
 	mcopy $(OUTPUT_DIR)/haribote.sys -i $@ ::
-	mcopy $(OUTPUT_DIR)/hello.bin -i $@ ::
-	mcopy $(OUTPUT_DIR)/hello2.bin -i $@ ::
-	mcopy $(OUTPUT_DIR)/hello3.bin -i $@ ::
-	mcopy $(OUTPUT_DIR)/crack2.bin -i $@ ::
+	mcopy $(OUTPUT_DIR)/hello.hrb -i $@ ::
+	mcopy $(OUTPUT_DIR)/rs.hrb -i $@ ::
 
 asm :
 	make $(OUTPUT_DIR)/ipl.bin 
@@ -56,5 +57,5 @@ $(OUTPUT_DIR)/libhello.a: $(OUTPUT_DIR_KEEP)
 	cd hello/ && cargo xbuild --target-dir ../$(OUTPUT_DIR)
 	cp $(OUTPUT_DIR)/i686-haribote/debug/libhello.a $(OUTPUT_DIR)/
 
-$(OUTPUT_DIR)/hello3.bin: $(OUTPUT_DIR)/libhello.a $(OUTPUT_DIR_KEEP)
+$(OUTPUT_DIR)/rs.hrb: $(OUTPUT_DIR)/libhello.a $(OUTPUT_DIR_KEEP)
 	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $<  -o $@

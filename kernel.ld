@@ -7,7 +7,7 @@ https://github.com/kotetuco/ructiss/blob/master/kernel/arch/i686-unknown-linux-g
 
 /*出力オブジェクトファイル(Makefileで定義)*/
 
-ENTRY(haribote_os)
+ENTRY(hrmain)
 
 /*出力フォーマット*/
 OUTPUT_FORMAT("binary")
@@ -24,7 +24,7 @@ SECTIONS{
 		LONG(SIZEOF(.data))
 		LONG(LOADADDR(.data))
 		LONG(0xe9000000)
-		LONG(haribote_os - 0x20)
+		LONG(hrmain - 0x20)
 		LONG((ADDR(.bss) + SIZEOF(.bss) + 0xf) & ~ 0xf)
 	}
 
@@ -32,7 +32,7 @@ SECTIONS{
 	.text ADDR(.head) + SIZEOF(.head) : SUBALIGN(1)
 	{
 		/*.textセクション全部を含む*/
-		*(.text.haribote_os)
+		*(.text.hrmain)
 		*(.text*)
 	}
 

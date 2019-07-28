@@ -43,7 +43,7 @@ pub static mut SHEET_MANAGER_ADDR: usize = 0;
 
 #[no_mangle]
 #[start]
-pub extern "C" fn haribote_os() {
+pub extern "C" fn hrmain() {
     descriptor_table::init();
     interrupt::init();
     sti();
