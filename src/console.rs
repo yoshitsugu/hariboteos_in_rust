@@ -351,15 +351,6 @@ impl Console {
             app_mem_addr as i32,
             AR_DATA32_RW + 0x60,
         );
-        // kernel.ldを使ってリンクされたファイルなら最初の6バイトを置き換える
-        if finfo.size >= 8 {
-            // 4から7バイト目で判定
-            let bytes = unsafe { *((content_addr + 4) as *const [u8; 4]) };
-            if bytes == *b"Hari" {
-                let pre = unsafe { &mut *(content_addr as *mut [u8; 6]) };
-                *pre = [0xe8, 0x16, 0x00, 0x00, 0x00, 0xcb];
-            }
-        }
         let esp0_addr: usize;
         {
             let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
@@ -368,10 +359,18 @@ impl Console {
             let task = &task_manager.tasks_data[task_index];
             esp0_addr = unsafe { &(task.tss.esp0) } as *const i32 as usize;
         }
-
+        // kernel.ldを使ってリンクされたファイルならジャンプ先を調整する
+        let mut app_eip = 0;
+        if finfo.size >= 8 {
+            // 4から7バイト目で判定
+            let bytes = unsafe { *((content_addr + 4) as *const [u8; 4]) };
+            if bytes == *b"Hari" {
+                app_eip = 0x1b;
+            }
+        }
         unsafe {
             _start_app(
-                0,
+                app_eip,
                 content_gdt * 8,
                 APP_MEM_SIZE as i32,
                 app_gdt * 8,
