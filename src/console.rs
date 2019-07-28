@@ -385,7 +385,7 @@ impl Console {
         self.newline();
     }
 
-    fn put_string(&mut self, string_addr: usize, string_length: usize, initial_x: usize) {
+    pub fn put_string(&mut self, string_addr: usize, string_length: usize, initial_x: usize) {
         self.cursor_x = initial_x as isize;
         for x in 0..string_length {
             let chr = unsafe { *((string_addr + x as usize) as *const u8) };

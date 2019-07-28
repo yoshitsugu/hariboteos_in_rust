@@ -21,9 +21,10 @@ mod vga;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 
-use asm::{cli, out8, sti};
+use asm::{cli, end_app, out8, sti};
 use console::{
-    console_task, CONSOLE_BACKSPACE, CONSOLE_CURSOR_OFF, CONSOLE_CURSOR_ON, CONSOLE_ENTER,
+    console_task, Console, CONSOLE_ADDR, CONSOLE_BACKSPACE, CONSOLE_CURSOR_OFF, CONSOLE_CURSOR_ON,
+    CONSOLE_ENTER,
 };
 use fifo::Fifo;
 use interrupt::PORT_KEYDAT;
@@ -376,6 +377,23 @@ pub extern "C" fn haribote_os() {
                     lock_keys.scroll_lock = !lock_keys.scroll_lock;
                     keycmd.put(KEYCMD_LED as u32).unwrap();
                     keycmd.put(lock_keys.as_bytes() as u32).unwrap();
+                }
+                // Shift + F1 でアプリケーションを強制終了
+                {
+                    let mut console_task_mut = &mut task_manager.tasks_data[console_task_index];
+                    if key == 0x3b
+                        && (key_shift.0 == true || key_shift.1 == true)
+                        && console_task_mut.tss.ss0 != 0
+                    {
+                        let console_addr = unsafe { *(CONSOLE_ADDR as *const usize) };
+                        let console = unsafe { &mut *(console_addr as *mut Console) };
+                        let message = b"\nBreak(key) :\n";
+                        console.put_string(message.as_ptr() as usize, message.len(), 8);
+                        cli();
+                        console_task_mut.tss.eax = &console_task_mut.tss.esp0 as *const i32 as i32;
+                        console_task_mut.tss.eip = end_app as i32;
+                        sti();
+                    }
                 }
                 // キーボードがデータを無事に受け取った
                 if key == 0xfa {

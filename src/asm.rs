@@ -177,6 +177,7 @@ macro_rules! exception_handler {
               } else {
                   asm!("
                   MOV ESP,[EAX]
+                  MOV DWORD PTR [EAX+4],0
                   POPAD
                   " : : "{EAX}"(ret) : : "intel");
               }
@@ -211,8 +212,18 @@ pub extern "C" fn interrupt_bin_api() {
         } else {
             asm!("
                 MOV ESP,[EAX]
+                MOV DWORD PTR [EAX+4],0
                 POPAD
                 " : : "{EAX}"(ret) : : "intel");
         }
+    }
+}
+
+#[naked]
+pub extern "C" fn end_app() {
+    unsafe {
+        asm!("MOV ESP,[EAX]
+              MOV DWORD PTR [EAX+4],0
+              POPAD" : : : : "intel");
     }
 }
