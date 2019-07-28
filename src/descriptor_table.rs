@@ -1,5 +1,5 @@
 use crate::asm;
-use crate::console::inthandler0d;
+use crate::console::{inthandler0c, inthandler0d};
 use crate::keyboard::inthandler21;
 use crate::mouse::inthandler2c;
 use crate::timer::inthandler20;
@@ -87,6 +87,8 @@ pub fn init() {
     }
 
     // 割り込みの設定
+    let idt = unsafe { &mut *((ADR_IDT + 0x0c * 8) as *mut GateDescriptor) };
+    *idt = GateDescriptor::new(exception_handler!(inthandler0c) as u32, 2 * 8, AR_INTGATE32);
     let idt = unsafe { &mut *((ADR_IDT + 0x0d * 8) as *mut GateDescriptor) };
     *idt = GateDescriptor::new(exception_handler!(inthandler0d) as u32, 2 * 8, AR_INTGATE32);
     let idt = unsafe { &mut *((ADR_IDT + 0x21 * 8) as *mut GateDescriptor) };

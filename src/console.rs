@@ -599,15 +599,36 @@ fn search_file(filename: &[u8]) -> Option<FileInfo> {
     target_finfo
 }
 
-pub extern "C" fn inthandler0d() -> usize {
-    exception_handler(b"INT 0D: \n General Protected Exception.\n")
+pub extern "C" fn inthandler0c(esp: *const usize) -> usize {
+    exception_handler(b"INT 0C: \n Stack Exception.\n", esp)
 }
 
-pub extern "C" fn exception_handler(message: &[u8]) -> usize {
+pub extern "C" fn inthandler0d(esp: *const usize) -> usize {
+    exception_handler(b"INT 0D: \n General Protected Exception.\n", esp)
+}
+
+pub extern "C" fn exception_handler(message: &[u8], esp: *const usize) -> usize {
     let console_addr = unsafe { *(CONSOLE_ADDR as *const usize) };
     let console = unsafe { &mut *(console_addr as *mut Console) };
+    let sheet_manager_addr = unsafe { SHEET_MANAGER_ADDR };
+    let sheet_manager = unsafe { &mut *(sheet_manager_addr as *mut SheetManager) };
+    let sheet = sheet_manager.sheets_data[console.sheet_index];
     console.newline();
     console.put_string(message.as_ptr() as usize, message.len(), 8);
+    write_with_bg!(
+        sheet_manager,
+        console.sheet_index,
+        sheet.width,
+        sheet.height,
+        8,
+        console.cursor_y,
+        Color::White,
+        Color::Black,
+        30,
+        "EIP = {:>08X}",
+        unsafe { *((esp as usize + 11) as *const usize) }
+    );
+    console.newline();
     let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
     let task_index = task_manager.now_index();
     let task = &task_manager.tasks_data[task_index];

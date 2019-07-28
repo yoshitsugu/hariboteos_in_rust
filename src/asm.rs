@@ -164,7 +164,7 @@ macro_rules! exception_handler {
       		    MOV		AX,SS
       		    MOV		DS,AX
       		    MOV		ES,AX": : : : "intel", "volatile");
-              asm!("CALL $0" : "={EAX}"(ret) : "r"($name as extern "C" fn() -> usize) : : "intel");
+              asm!("CALL $0" : "={EAX}"(ret) : "r"($name as extern "C" fn(esp: *const usize) -> usize) : : "intel");
               if ret == 0 {
                   asm!("
                     POP		EAX
