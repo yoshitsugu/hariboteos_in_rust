@@ -247,10 +247,13 @@ impl SheetManager {
                 // 非表示 -> 表示
                 if let Some(z) = oz {
                     let zmax = if let Some(zmax) = self.z_max { zmax } else { 0 };
-                    for h in z..zmax {
+                    let mut h = zmax;
+                    while h >= z { 
                         self.sheets[h + 1] = self.sheets[h];
                         let mut sh = &mut self.sheets_data[self.sheets[h + 1]];
                         sh.z = Some(h + 1);
+                        if (h == 0) { break; }
+                        h -= 1;
                     }
                     self.sheets[z] = sheet_index;
                     if let Some(zmax) = self.z_max {
