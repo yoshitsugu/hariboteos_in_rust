@@ -5,17 +5,19 @@
 
 use core::panic::PanicInfo;
 
+extern "C" {
+    fn _api_initmalloc();
+    fn _api_malloc(size: usize) -> usize;
+    fn _api_free(addr: usize, size: usize);
+}
+
 #[no_mangle]
 #[start]
 pub extern "C" fn hrmain() {
-    let buf: [u8; 150 * 50] = [0; 150 * 50];
-    let sheet_index = open_window(
-        buf.as_ptr() as usize,
-        150,
-        50,
-        -1,
-        b"hello".as_ptr() as usize,
-    );
+    put_string(b"hello".as_ptr() as usize);
+    unsafe { _api_initmalloc(); }
+    let buf_addr = unsafe { _api_malloc(150 * 50) };
+    let sheet_index = open_window(buf_addr, 150, 50, -1, b"hello".as_ptr() as usize);
     box_fil_window(sheet_index as usize, 8, 36, 141, 43, 3);
     put_str_window(
         sheet_index as usize,
@@ -25,6 +27,9 @@ pub extern "C" fn hrmain() {
         12,
         b"hello again".as_ptr() as usize,
     );
+    unsafe {
+        _api_free(buf_addr, 150 * 50);
+    }
     end()
 }
 

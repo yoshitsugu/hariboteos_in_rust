@@ -122,6 +122,20 @@ pub extern "C" fn hrb_api(
             edi as isize,
         );
         sheet_manager.refresh(sheet_index, eax, ecx, esi + 1, edi + 1);
+    } else if edx == 8 {
+        let memman = unsafe { &mut *((ebx as usize + ds_base) as *mut MemMan) };
+        *memman = MemMan::new();
+        let bytes = ecx as u32 & 0xfffffff0;
+        memman.free(eax as u32, bytes).unwrap();
+    } else if edx == 9 {
+        let bytes = (ecx as u32 + 0x0f) & 0xfffffff0;
+        let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut u32) };
+        let memman = unsafe { &mut *((ebx as usize + ds_base) as *mut MemMan) };
+        *reg_eax = memman.alloc(bytes).unwrap();
+    } else if edx == 10 {
+        let bytes = (ecx as u32 + 0x0f) & 0xfffffff0;
+        let memman = unsafe { &mut *((ebx as usize + ds_base) as *mut MemMan) };
+        memman.free(eax as u32, bytes).unwrap();
     }
     0
 }
@@ -399,13 +413,15 @@ impl Console {
         let content_gdt = 1003;
         let app_gdt = 1004;
         let mut app_mem_addr = 0;
+        let mut segment_size = 0;
+        let mut esp = 0;
         if finfo.size >= 8 {
             // 4から7バイト目で判定
             let bytes = unsafe { *((content_addr + 4) as *const [u8; 4]) };
             if bytes == *b"Hari" {
                 app_eip = 0x1b;
-                let segment_size = unsafe { *((content_addr + 0x0000) as *const usize) };
-                let esp = unsafe { *((content_addr + 0x000c) as *const usize) };
+                segment_size = unsafe { *((content_addr + 0x0000) as *const usize) };
+                esp = unsafe { *((content_addr + 0x000c) as *const usize) };
                 let data_size = unsafe { *((content_addr + 0x0010) as *const usize) };
                 let content_data_addr = unsafe { *((content_addr + 0x0014) as *const usize) };
 
@@ -443,7 +459,7 @@ impl Console {
                 _start_app(
                     app_eip,
                     content_gdt * 8,
-                    APP_MEM_SIZE as i32,
+                    esp as i32,
                     app_gdt * 8,
                     esp0_addr as i32,
                 );
@@ -455,7 +471,7 @@ impl Console {
         memman.free_4k(content_addr as u32, finfo.size).unwrap();
         if app_mem_addr > 0 {
             memman
-                .free_4k(app_mem_addr as u32, APP_MEM_SIZE as u32)
+                .free_4k(app_mem_addr as u32, segment_size as u32)
                 .unwrap();
         }
     }

@@ -57,5 +57,8 @@ $(OUTPUT_DIR)/libhello.a: $(OUTPUT_DIR_KEEP)
 	cd hello/ && cargo xbuild --target-dir ../$(OUTPUT_DIR)
 	cp $(OUTPUT_DIR)/i686-haribote/debug/libhello.a $(OUTPUT_DIR)/
 
-$(OUTPUT_DIR)/rs.hrb: $(OUTPUT_DIR)/libhello.a $(OUTPUT_DIR_KEEP)
-	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $< -o $@
+$(OUTPUT_DIR)/app_asmfunc.o: hello/src/asmfunc.asm Makefile $(OUTPUT_DIR_KEEP)
+	nasm -f elf $< -o $@
+
+$(OUTPUT_DIR)/rs.hrb: $(OUTPUT_DIR)/libhello.a $(OUTPUT_DIR)/app_asmfunc.o $(OUTPUT_DIR_KEEP)
+	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $< $(OUTPUT_DIR)/app_asmfunc.o -o $@
