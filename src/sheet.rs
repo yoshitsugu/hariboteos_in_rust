@@ -248,11 +248,13 @@ impl SheetManager {
                 if let Some(z) = oz {
                     let zmax = if let Some(zmax) = self.z_max { zmax } else { 0 };
                     let mut h = zmax;
-                    while h >= z { 
+                    while h >= z {
                         self.sheets[h + 1] = self.sheets[h];
                         let mut sh = &mut self.sheets_data[self.sheets[h + 1]];
                         sh.z = Some(h + 1);
-                        if (h == 0) { break; }
+                        if (h == 0) {
+                            break;
+                        }
                         h -= 1;
                     }
                     self.sheets[z] = sheet_index;

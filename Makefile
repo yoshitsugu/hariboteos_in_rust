@@ -58,4 +58,4 @@ $(OUTPUT_DIR)/libhello.a: $(OUTPUT_DIR_KEEP)
 	cp $(OUTPUT_DIR)/i686-haribote/debug/libhello.a $(OUTPUT_DIR)/
 
 $(OUTPUT_DIR)/rs.hrb: $(OUTPUT_DIR)/libhello.a $(OUTPUT_DIR_KEEP)
-	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $<  -o $@
+	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $< -o $@

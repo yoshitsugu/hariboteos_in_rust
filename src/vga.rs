@@ -46,6 +46,29 @@ pub enum Color {
     DarkGray = 15,
 }
 
+pub fn to_color(n: i8) -> Option<Color> {
+    use Color::*;
+    match n {
+        0 => Some(Black),
+        1 => Some(LightRed),
+        2 => Some(LightGreen),
+        3 => Some(LightYellow),
+        4 => Some(LightBlue),
+        5 => Some(LightPurple),
+        6 => Some(LightCyan),
+        7 => Some(White),
+        8 => Some(LightGray),
+        9 => Some(DarkRed),
+        10 => Some(DarkGreen),
+        11 => Some(DarkYellow),
+        12 => Some(DarkBlue),
+        13 => Some(DarkPurple),
+        14 => Some(DarkCyan),
+        15 => Some(DarkGray),
+        _ => None,
+    }
+}
+
 pub const MAX_BLOCK_SIZE: usize = 16;
 
 lazy_static! {

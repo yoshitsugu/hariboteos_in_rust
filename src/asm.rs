@@ -189,7 +189,7 @@ macro_rules! exception_handler {
 
 #[naked]
 #[no_mangle]
-pub extern "C" fn interrupt_bin_api() {
+pub extern "C" fn interrupt_hrb_api() {
     let mut ret: usize;
     unsafe {
         asm!("STI
@@ -200,7 +200,7 @@ pub extern "C" fn interrupt_bin_api() {
               MOV   AX,SS
               MOV   DS,AX
               MOV   ES,AX" : : : : "intel");
-        asm!("CALL  bin_api" : "={EAX}"(ret) : : : "intel");
+        asm!("CALL  hrb_api" : "={EAX}"(ret) : : : "intel");
         if ret == 0 {
             asm!("
                 ADD ESP,32

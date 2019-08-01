@@ -9,7 +9,7 @@ use crate::memory::{MemMan, MEMMAN_ADDR};
 use crate::mt::{TaskManager, TASK_MANAGER_ADDR};
 use crate::sheet::SheetManager;
 use crate::timer::TIMER_MANAGER;
-use crate::vga::{boxfill, Color};
+use crate::vga::{boxfill, make_window, to_color, Color};
 use crate::{write_with_bg, SHEET_MANAGER_ADDR};
 
 pub const CONSOLE_CURSOR_ON: u32 = 2;
@@ -21,7 +21,7 @@ const MIN_CURSOR_Y: isize = 28;
 const MAX_CURSOR_X: isize = 8 + 240;
 const MAX_CURSOR_Y: isize = 28 + 112;
 pub const CONSOLE_ADDR: usize = 0x0fec;
-pub const CS_BASE_ADDR: usize = 0xfe8;
+pub const DS_BASE_ADDR: usize = 0xfe8;
 const MAX_CMD: usize = 30;
 const APP_MEM_SIZE: usize = 64 * 1024;
 
@@ -30,19 +30,21 @@ extern "C" {
 }
 
 #[no_mangle]
-pub extern "C" fn bin_api(
-    _edi: i32,
-    _esi: i32,
-    _ebp: i32,
-    _esp: i32,
+pub extern "C" fn hrb_api(
+    edi: i32,
+    esi: i32,
+    ebp: i32,
+    esp: i32,
     ebx: i32,
     edx: i32,
     ecx: i32,
     eax: i32,
 ) -> usize {
-    let cs_base = unsafe { *(CS_BASE_ADDR as *const usize) };
+    let ds_base = unsafe { *(DS_BASE_ADDR as *const usize) };
     let console_addr = unsafe { *(CONSOLE_ADDR as *const usize) };
     let console = unsafe { &mut *(console_addr as *mut Console) };
+    let sheet_manager = unsafe { &mut *(console.sheet_manager_addr as *mut SheetManager) };
+    let reg = &eax as *const i32 as usize + 4;
     if edx == 1 {
         // 1文字出力
         console.put_char(eax as u8, true);
@@ -50,7 +52,7 @@ pub extern "C" fn bin_api(
         // 0がくるまで1文字ずつ出力
         let mut i = 0;
         loop {
-            let chr = unsafe { *((ebx as usize + i as usize + cs_base) as *const u8) };
+            let chr = unsafe { *((ebx as usize + i as usize + ds_base) as *const u8) };
             if chr == 0 {
                 break;
             }
@@ -65,6 +67,61 @@ pub extern "C" fn bin_api(
         let task_index = task_manager.now_index();
         let task = &task_manager.tasks_data[task_index];
         return unsafe { &(task.tss.esp0) } as *const i32 as usize;
+    } else if edx == 5 {
+        let sheet_index = sheet_manager.alloc().unwrap();
+        {
+            let new_sheet = &mut sheet_manager.sheets_data[sheet_index];
+            new_sheet.set(ebx as usize + ds_base, esi, edi, to_color(eax as i8));
+        }
+        let title = unsafe { *((ecx as usize + ds_base) as *const [u8; 30]) };
+        let mut t = title.iter().take_while(|t| **t != 0);
+        let mut i = 0;
+        for n in 0..30 {
+            i = n;
+            if t.next().is_none() {
+                break;
+            }
+        }
+        make_window(
+            ebx as usize + ds_base,
+            esi as isize,
+            edi as isize,
+            from_utf8(&title[0..i]).unwrap(),
+            false,
+        );
+        sheet_manager.slide(sheet_index, 100, 50);
+        sheet_manager.updown(sheet_index, Some(3));
+        let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut i32) };
+        *reg_eax = sheet_index as i32;
+    } else if edx == 6 {
+        let sheet_index = ebx as usize;
+        let sheet = sheet_manager.sheets_data[sheet_index];
+        let string = unsafe { *((ebp as usize + ds_base) as *const [u8; 30]) };
+        use crate::vga::ScreenWriter;
+        use core::fmt::Write;
+        let mut writer = ScreenWriter::new(
+            Some(sheet.buf_addr),
+            to_color(eax as i8).unwrap(),
+            esi as usize,
+            edi as usize,
+            sheet.width as usize,
+            sheet.height as usize,
+        );
+        write!(writer, "{}", from_utf8(&string[0..(ecx as usize)]).unwrap()).unwrap();
+        sheet_manager.refresh(sheet_index, esi, edi, esi + ecx * 8, edi + 16);
+    } else if edx == 7 {
+        let sheet_index = ebx as usize;
+        let sheet = sheet_manager.sheets_data[sheet_index];
+        boxfill(
+            sheet.buf_addr,
+            sheet.width as isize,
+            to_color(ebp as i8).unwrap(),
+            eax as isize,
+            ecx as isize,
+            esi as isize,
+            edi as isize,
+        );
+        sheet_manager.refresh(sheet_index, eax, ecx, esi + 1, edi + 1);
     }
     0
 }
@@ -352,8 +409,8 @@ impl Console {
                 let data_size = unsafe { *((content_addr + 0x0010) as *const usize) };
                 let content_data_addr = unsafe { *((content_addr + 0x0014) as *const usize) };
 
-                let app_mem_addr = memman.alloc_4k(segment_size as u32).unwrap() as usize;
-                let ptr = unsafe { &mut *(CS_BASE_ADDR as *mut usize) };
+                app_mem_addr = memman.alloc_4k(segment_size as u32).unwrap() as usize;
+                let ptr = unsafe { &mut *(DS_BASE_ADDR as *mut usize) };
                 *ptr = app_mem_addr;
 
                 let gdt = unsafe { &mut *((ADR_GDT + content_gdt * 8) as *mut SegmentDescriptor) };
@@ -377,7 +434,6 @@ impl Console {
         }
 
         if app_eip > 0 {
-            let esp0_addr: usize;
             let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
             let task_index = task_manager.now_index();
 
