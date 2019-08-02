@@ -42,7 +42,7 @@ impl Sheet {
     }
 }
 
-const MAX_SHEETS: usize = 256;
+pub const MAX_SHEETS: usize = 256;
 
 pub struct SheetManager {
     pub z_max: Option<usize>,             // 一番上のSheetのz

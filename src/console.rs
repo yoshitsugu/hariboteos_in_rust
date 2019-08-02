@@ -7,7 +7,7 @@ use crate::file::*;
 use crate::keyboard::KEYBOARD_OFFSET;
 use crate::memory::{MemMan, MEMMAN_ADDR};
 use crate::mt::{TaskManager, TASK_MANAGER_ADDR};
-use crate::sheet::SheetManager;
+use crate::sheet::{SheetManager, MAX_SHEETS};
 use crate::timer::TIMER_MANAGER;
 use crate::vga::{boxfill, make_window, to_color, Color};
 use crate::{write_with_bg, SHEET_MANAGER_ADDR};
@@ -94,7 +94,12 @@ pub extern "C" fn hrb_api(
         let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut i32) };
         *reg_eax = sheet_index as i32;
     } else if edx == 6 {
-        let sheet_index = ebx as usize;
+        let mut sheet_index = ebx as usize;
+        let mut refresh = true;
+        if sheet_index >= MAX_SHEETS {
+            refresh = false;
+            sheet_index -= MAX_SHEETS;
+        }
         let sheet = sheet_manager.sheets_data[sheet_index];
         let string = unsafe { *((ebp as usize + ds_base) as *const [u8; 30]) };
         use crate::vga::ScreenWriter;
@@ -108,9 +113,16 @@ pub extern "C" fn hrb_api(
             sheet.height as usize,
         );
         write!(writer, "{}", from_utf8(&string[0..(ecx as usize)]).unwrap()).unwrap();
-        sheet_manager.refresh(sheet_index, esi, edi, esi + ecx * 8, edi + 16);
+        if refresh {
+            sheet_manager.refresh(sheet_index, esi, edi, esi + ecx * 8, edi + 16);
+        }
     } else if edx == 7 {
-        let sheet_index = ebx as usize;
+        let mut sheet_index = ebx as usize;
+        let mut refresh = true;
+        if sheet_index >= MAX_SHEETS {
+            refresh = false;
+            sheet_index -= MAX_SHEETS;
+        }
         let sheet = sheet_manager.sheets_data[sheet_index];
         boxfill(
             sheet.buf_addr,
@@ -121,7 +133,9 @@ pub extern "C" fn hrb_api(
             esi as isize,
             edi as isize,
         );
-        sheet_manager.refresh(sheet_index, eax, ecx, esi + 1, edi + 1);
+        if refresh {
+            sheet_manager.refresh(sheet_index, eax, ecx, esi + 1, edi + 1);
+        }
     } else if edx == 8 {
         let memman = unsafe { &mut *((ebx as usize + ds_base) as *mut MemMan) };
         *memman = MemMan::new();
@@ -136,6 +150,25 @@ pub extern "C" fn hrb_api(
         let bytes = (ecx as u32 + 0x0f) & 0xfffffff0;
         let memman = unsafe { &mut *((ebx as usize + ds_base) as *mut MemMan) };
         memman.free(eax as u32, bytes).unwrap();
+    } else if edx == 11 {
+        let mut sheet_index = ebx as usize;
+        let mut refresh = true;
+        if sheet_index >= MAX_SHEETS {
+            refresh = false;
+            sheet_index -= MAX_SHEETS;
+        }
+
+        let sheet = sheet_manager.sheets_data[sheet_index];
+        let ptr = unsafe {
+            &mut *((sheet.buf_addr + sheet.width as usize * edi as usize + esi as usize) as *mut u8)
+        };
+        *ptr = eax as u8;
+        if refresh {
+            sheet_manager.refresh(sheet_index, esi, edi, esi + 1, edi + 1);
+        }
+    } else if edx == 12 {
+        let sheet_index = ebx as usize;
+        sheet_manager.refresh(sheet_index, eax, ecx, esi, edi);
     }
     0
 }
