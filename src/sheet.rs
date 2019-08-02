@@ -252,7 +252,7 @@ impl SheetManager {
                         self.sheets[h + 1] = self.sheets[h];
                         let mut sh = &mut self.sheets_data[self.sheets[h + 1]];
                         sh.z = Some(h + 1);
-                        if (h == 0) {
+                        if h == 0 {
                             break;
                         }
                         h -= 1;

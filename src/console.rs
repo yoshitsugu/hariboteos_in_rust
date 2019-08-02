@@ -9,7 +9,7 @@ use crate::memory::{MemMan, MEMMAN_ADDR};
 use crate::mt::{TaskManager, TASK_MANAGER_ADDR};
 use crate::sheet::{SheetManager, MAX_SHEETS};
 use crate::timer::TIMER_MANAGER;
-use crate::vga::{boxfill, make_window, to_color, Color};
+use crate::vga::{boxfill, draw_line, make_window, to_color, Color};
 use crate::{write_with_bg, SHEET_MANAGER_ADDR};
 
 pub const CONSOLE_CURSOR_ON: u32 = 2;
@@ -23,7 +23,6 @@ const MAX_CURSOR_Y: isize = 28 + 112;
 pub const CONSOLE_ADDR: usize = 0x0fec;
 pub const DS_BASE_ADDR: usize = 0xfe8;
 const MAX_CMD: usize = 30;
-const APP_MEM_SIZE: usize = 64 * 1024;
 
 extern "C" {
     fn _start_app(eip: i32, cs: i32, esp: i32, ds: i32, tss_esp_addr: i32);
@@ -169,6 +168,18 @@ pub extern "C" fn hrb_api(
     } else if edx == 12 {
         let sheet_index = ebx as usize;
         sheet_manager.refresh(sheet_index, eax, ecx, esi, edi);
+    } else if edx == 13 {
+        let mut sheet_index = ebx as usize;
+        let mut refresh = true;
+        if sheet_index >= MAX_SHEETS {
+            refresh = false;
+            sheet_index -= MAX_SHEETS;
+        }
+        let sheet = sheet_manager.sheets_data[sheet_index];
+        draw_line(sheet.buf_addr, sheet.width, eax, ecx, esi, edi, ebp);
+        if refresh {
+            sheet_manager.refresh(sheet_index, eax, ecx, esi + 1, edi + 1);
+        }
     }
     0
 }

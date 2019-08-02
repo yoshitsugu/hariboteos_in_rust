@@ -410,3 +410,49 @@ pub fn make_textbox(
     );
     boxfill(buf, bxsize, c, x0 - 1, y0 - 1, x1 + 0, y1 + 0);
 }
+
+pub fn draw_line(buf_addr: usize, bxsize: i32, x0: i32, y0: i32, x1: i32, y1: i32, color: i32) {
+    let mut dx = x1 - x0;
+    let mut dy = y1 - y0;
+    let mut x = x0 << 10;
+    let mut y = y0 << 10;
+    let length: i32;
+    if dx < 0 {
+        dx = -dx;
+    }
+    if dy < 0 {
+        dy = -dy;
+    }
+    if dx >= dy {
+        length = dx + 1;
+        if x0 > x1 {
+            dx = -1024;
+        } else {
+            dx = 1024;
+        }
+        if y0 <= y1 {
+            dy = ((y1 - y0 + 1) << 10) / length;
+        } else {
+            dy = ((y1 - y0 - 1) << 10) / length;
+        }
+    } else {
+        length = dy + 1;
+        if y0 > y1 {
+            dy = -1024;
+        } else {
+            dy = 1024;
+        }
+        if x0 <= x1 {
+            dx = ((x1 - x0 + 1) << 10) / length;
+        } else {
+            dx = ((x1 - x0 - 1) << 10) / length;
+        }
+    }
+
+    for _ in 0..length {
+        let ptr = unsafe { &mut *((buf_addr as i32 + (y >> 10) * bxsize + (x >> 10)) as *mut u8) };
+        *ptr = color as u8;
+        x += dx;
+        y += dy;
+    }
+}

@@ -5,12 +5,13 @@
 
 use core::panic::PanicInfo;
 
-use rand::prelude::*;
+// use rand::prelude::*;
 
 extern "C" {
     fn _api_initmalloc();
     fn _api_malloc(size: usize) -> usize;
     fn _api_free(addr: usize, size: usize);
+    fn _api_linewin(sheet_index: usize, x0: i32, y0: i32, x1: i32, y1: i32, color: i32);
 }
 
 const SHEET_UNREFRESH_OFFSET: usize = 256;
@@ -21,25 +22,34 @@ pub extern "C" fn hrmain() {
     unsafe {
         _api_initmalloc();
     }
-    let buf_addr = unsafe { _api_malloc(150 * 100) };
-    let sheet_index = open_window(buf_addr, 150, 100, -1, b"star1".as_ptr() as usize) as usize;
-    box_fil_window(
-        sheet_index + SHEET_UNREFRESH_OFFSET,
-        6,
-        26,
-        143,
-        93,
-        0, /* 黒 */
-    );
-    let mut rng = StdRng::seed_from_u64(123);
-    for i in 0..50 {
-        let x = (rng.next_u32() % 137 + 6) as i32;
-        let y = (rng.next_u32() % 67 + 26) as i32;
-        point_window(sheet_index + SHEET_UNREFRESH_OFFSET, x, y, 3 /* 黄 */);
+    let buf_addr = unsafe { _api_malloc(160 * 100) };
+    let sheet_index = open_window(buf_addr, 160, 100, -1, b"lines".as_ptr() as usize) as usize;
+    let sheet_index_nonrefresh = sheet_index + SHEET_UNREFRESH_OFFSET;
+    for i in 0..8 {
+        unsafe { _api_linewin(sheet_index_nonrefresh, 8, 26, 77, i * 9 + 26, i) }
+        unsafe {
+            _api_linewin(sheet_index_nonrefresh, 88, 26, i * 9 + 88, 89, i);
+        }
     }
-    refresh_window(sheet_index, 6, 26, 144, 94);
+    refresh_window(sheet_index, 6, 26, 154, 90);
+    // let sheet_index = open_window(buf_addr, 150, 100, -1, b"star1".as_ptr() as usize) as usize;
+    // box_fil_window(
+    //     sheet_index + SHEET_UNREFRESH_OFFSET,
+    //     6,
+    //     26,
+    //     143,
+    //     93,
+    //     0, /* 黒 */
+    // );
+    // let mut rng = StdRng::seed_from_u64(123);
+    // for i in 0..50 {
+    //     let x = (rng.next_u32() % 137 + 6) as i32;
+    //     let y = (rng.next_u32() % 67 + 26) as i32;
+    //     point_window(sheet_index + SHEET_UNREFRESH_OFFSET, x, y, 3 /* 黄 */);
+    // }
+    // refresh_window(sheet_index, 6, 26, 144, 94);
     unsafe {
-        _api_free(buf_addr, 150 * 100);
+        _api_free(buf_addr, 160 * 100);
     }
     end()
 }
@@ -70,7 +80,6 @@ fn end() {
     }
 }
 
-#[no_mangle]
 fn open_window(
     buf_addr: usize,
     xsize: usize,

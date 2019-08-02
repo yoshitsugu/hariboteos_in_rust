@@ -390,7 +390,8 @@ pub extern "C" fn hrmain() {
                         let message = b"\nBreak(key) :\n";
                         console.put_string(message.as_ptr() as usize, message.len(), 8);
                         cli();
-                        console_task_mut.tss.eax = &console_task_mut.tss.esp0 as *const i32 as i32;
+                        console_task_mut.tss.eax =
+                            unsafe { &console_task_mut.tss.esp0 } as *const i32 as i32;
                         console_task_mut.tss.eip = end_app as i32;
                         sti();
                     }
