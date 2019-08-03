@@ -7,7 +7,7 @@ use crate::file::*;
 use crate::keyboard::KEYBOARD_OFFSET;
 use crate::memory::{MemMan, MEMMAN_ADDR};
 use crate::mt::{TaskManager, TASK_MANAGER_ADDR};
-use crate::sheet::{SheetManager, MAX_SHEETS};
+use crate::sheet::{SheetManager, SheetFlag, MAX_SHEETS};
 use crate::timer::TIMER_MANAGER;
 use crate::vga::{boxfill, draw_line, make_window, to_color, Color};
 use crate::{write_with_bg, SHEET_MANAGER_ADDR};
@@ -44,6 +44,7 @@ pub extern "C" fn hrb_api(
     let console = unsafe { &mut *(console_addr as *mut Console) };
     let sheet_manager = unsafe { &mut *(console.sheet_manager_addr as *mut SheetManager) };
     let reg = &eax as *const i32 as usize + 4;
+
     if edx == 1 {
         // 1文字出力
         console.put_char(eax as u8, true);
@@ -69,8 +70,11 @@ pub extern "C" fn hrb_api(
     } else if edx == 5 {
         let sheet_index = sheet_manager.alloc().unwrap();
         {
-            let new_sheet = &mut sheet_manager.sheets_data[sheet_index];
+            let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+            let task_index = task_manager.now_index();
+            let mut new_sheet = &mut sheet_manager.sheets_data[sheet_index];
             new_sheet.set(ebx as usize + ds_base, esi, edi, to_color(eax as i8));
+            new_sheet.task_index = task_index;
         }
         let title = unsafe { *((ecx as usize + ds_base) as *const [u8; 30]) };
         let mut t = title.iter().take_while(|t| **t != 0);
@@ -180,6 +184,46 @@ pub extern "C" fn hrb_api(
         if refresh {
             sheet_manager.refresh(sheet_index, eax, ecx, esi + 1, edi + 1);
         }
+    } else if edx == 14 {
+        let sheet_index = ebx as usize;
+        sheet_manager.free(sheet_index);
+    } else if edx == 15 {
+        loop {
+            cli();
+            let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+            let task_index = task_manager.now_index();
+            let fifo = {
+                let task = &task_manager.tasks_data[task_index];
+                unsafe { &*(task.fifo_addr as *const Fifo) }
+            };
+            if fifo.status() == 0 {
+                if eax != 0 {
+                    task_manager.sleep(task_index);
+                } else {
+                    sti();
+                    let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut i32) };
+                    *reg_eax = -1;
+                    return 0;
+                }
+            }
+            let i = fifo.get().unwrap();
+            sti();
+            if i <= 1 {
+                let task = &task_manager.tasks_data[task_index];
+                TIMER_MANAGER
+                    .lock()
+                    .init_timer(console.timer_index, task.fifo_addr, 1);
+                TIMER_MANAGER.lock().set_time(console.timer_index, 50);
+            } else if i == 2 {
+                console.cursor_c = Color::White
+            } else if i == 3 {
+                console.cursor_c = Color::Black
+            } else if 256 <= i && i <= 511 {
+                let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut u32) };
+                *reg_eax = i - 256;
+                return 0;
+            }
+        }
     }
     0
 }
@@ -192,6 +236,7 @@ pub struct Console {
     pub cursor_on: bool,
     pub sheet_index: usize,
     pub sheet_manager_addr: usize,
+    pub timer_index: usize,
 }
 
 impl Console {
@@ -203,6 +248,7 @@ impl Console {
             cursor_on: false,
             sheet_index,
             sheet_manager_addr,
+            timer_index: 0,
         }
     }
 
@@ -508,6 +554,15 @@ impl Console {
                     esp0_addr as i32,
                 );
             }
+            {
+                let sheet_manager = unsafe { &mut *(self.sheet_manager_addr as *mut SheetManager) };
+                for i in 0..MAX_SHEETS {
+                    let sheet = sheet_manager.sheets_data[i];
+                    if sheet.task_index == task_index && sheet.flag != SheetFlag::AVAILABLE {
+                        sheet_manager.free(i);
+                    }
+                }
+            }
             self.newline();
         } else {
             self.display_error("Bad Format");
@@ -578,9 +633,11 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
         *ptr = &console as *const Console as usize;
     }
 
-    let timer_index = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER.lock().init_timer(timer_index, fifo_addr, 1);
-    TIMER_MANAGER.lock().set_time(timer_index, 50);
+    console.timer_index = TIMER_MANAGER.lock().alloc().unwrap();
+    TIMER_MANAGER
+        .lock()
+        .init_timer(console.timer_index, fifo_addr, 1);
+    TIMER_MANAGER.lock().set_time(console.timer_index, 50);
     let sheet = sheet_manager.sheets_data[sheet_index];
 
     let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
@@ -603,17 +660,21 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
             sti();
             if i <= 1 {
                 if i != 0 {
-                    TIMER_MANAGER.lock().init_timer(timer_index, fifo_addr, 0);
+                    TIMER_MANAGER
+                        .lock()
+                        .init_timer(console.timer_index, fifo_addr, 0);
                     console.cursor_c = if console.cursor_on {
                         Color::White
                     } else {
                         Color::Black
                     };
                 } else {
-                    TIMER_MANAGER.lock().init_timer(timer_index, fifo_addr, 1);
+                    TIMER_MANAGER
+                        .lock()
+                        .init_timer(console.timer_index, fifo_addr, 1);
                     console.cursor_c = Color::Black;
                 }
-                TIMER_MANAGER.lock().set_time(timer_index, 50);
+                TIMER_MANAGER.lock().set_time(console.timer_index, 50);
             } else if KEYBOARD_OFFSET <= i && i <= 511 {
                 let key = (i - KEYBOARD_OFFSET) as u8;
                 if key != 0 {

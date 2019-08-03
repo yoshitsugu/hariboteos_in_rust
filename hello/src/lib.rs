@@ -32,6 +32,12 @@ pub extern "C" fn hrmain() {
         }
     }
     refresh_window(sheet_index, 6, 26, 154, 90);
+    loop {
+        if get_key(1) == 0x0a {
+            break;
+        }
+    }
+    close_window(sheet_index);
     // let sheet_index = open_window(buf_addr, 150, 100, -1, b"star1".as_ptr() as usize) as usize;
     // box_fil_window(
     //     sheet_index + SHEET_UNREFRESH_OFFSET,
@@ -131,6 +137,26 @@ fn refresh_window(sheet_index: usize, x0: i32, y0: i32, x1: i32, y1: i32) {
 		INT		0x40
         " : : "{EBX}"(sheet_index), "{EAX}"(x0), "{ECX}"(y0), "{ESI}"(x1), "{EDI}"(y1) : : "intel");
     }
+}
+
+fn close_window(sheet_index: usize) {
+    unsafe {
+        asm!("
+		MOV		EDX,14
+		INT		0x40
+        " : : "{EBX}"(sheet_index) : : "intel");
+    }
+}
+
+fn get_key(mode: i32) -> usize {
+    let mut key: usize;
+    unsafe {
+        asm!("
+		MOV		EDX,15
+		INT		0x40
+        " : "={EAX}"(key) : "{EAX}"(mode) : : "intel");
+    }
+    key
 }
 
 #[panic_handler]
