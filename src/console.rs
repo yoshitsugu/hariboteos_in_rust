@@ -7,7 +7,7 @@ use crate::file::*;
 use crate::keyboard::KEYBOARD_OFFSET;
 use crate::memory::{MemMan, MEMMAN_ADDR};
 use crate::mt::{TaskManager, TASK_MANAGER_ADDR};
-use crate::sheet::{SheetManager, SheetFlag, MAX_SHEETS};
+use crate::sheet::{SheetFlag, SheetManager, MAX_SHEETS};
 use crate::timer::TIMER_MANAGER;
 use crate::vga::{boxfill, draw_line, make_window, to_color, Color};
 use crate::{write_with_bg, SHEET_MANAGER_ADDR};

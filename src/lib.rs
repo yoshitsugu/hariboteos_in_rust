@@ -35,7 +35,7 @@ use mt::{TaskManager, TASK_MANAGER_ADDR};
 use sheet::SheetManager;
 use timer::TIMER_MANAGER;
 use vga::{
-    boxfill, init_palette, init_screen, make_textbox, make_window, make_wtitle, Color,
+    boxfill, init_palette, init_screen, make_textbox, make_window, make_wtitle, to_color, Color,
     ScreenWriter, SCREEN_HEIGHT, SCREEN_WIDTH,
 };
 
@@ -195,6 +195,11 @@ pub extern "C" fn hrmain() {
     let keycmd = Fifo::new(32, None);
     keycmd.put(KEYCMD_LED as u32).unwrap();
     keycmd.put(lock_keys.as_bytes() as u32).unwrap();
+    // ウィンドウの移動
+    let mut moving = false;
+    let mut mouse_move_x = 0;
+    let mut mouse_move_y = 0;
+    let mut target_sheet_index = 0;
 
     loop {
         // キーボードコントローラに送ルデータがあれば送る
@@ -209,19 +214,6 @@ pub extern "C" fn hrmain() {
             sti();
             if KEYBOARD_OFFSET <= i && i <= 511 {
                 let key = i - KEYBOARD_OFFSET;
-                write_with_bg!(
-                    sheet_manager,
-                    shi_bg,
-                    *SCREEN_WIDTH as isize,
-                    *SCREEN_HEIGHT as isize,
-                    0,
-                    0,
-                    Color::White,
-                    Color::DarkCyan,
-                    2,
-                    "{:x}",
-                    key
-                );
                 let mut chr = 0 as u8;
                 if key < KEYTABLE0.len() as u32 {
                     if key_shift == (false, false) {
@@ -396,6 +388,13 @@ pub extern "C" fn hrmain() {
                         sti();
                     }
                 }
+                // F11 で 1 の位置にあるSheetを下げる
+                if key == 0x57 && sheet_manager.z_max.is_some() && sheet_manager.z_max.unwrap() > 2
+                {
+                    let z = sheet_manager.z_max.unwrap();
+                    let sheet_index = sheet_manager.sheets[1];
+                    sheet_manager.updown(sheet_index, Some(z - 1));
+                }
                 // キーボードがデータを無事に受け取った
                 if key == 0xfa {
                     keycmd_wait = -1;
@@ -409,35 +408,6 @@ pub extern "C" fn hrmain() {
                 sheet_manager.refresh(shi_win, cursor_x as i32, 28, cursor_x as i32 + 8, 44)
             } else if 512 <= i && i <= 767 {
                 if mouse_dec.decode((i - 512) as u8).is_some() {
-                    write_with_bg!(
-                        sheet_manager,
-                        shi_bg,
-                        *SCREEN_WIDTH as isize,
-                        *SCREEN_HEIGHT as isize,
-                        32,
-                        0,
-                        Color::White,
-                        Color::DarkCyan,
-                        15,
-                        "[{}{}{} {:>4},{:>4}]",
-                        if (mouse_dec.btn.get() & 0x01) != 0 {
-                            'L'
-                        } else {
-                            'l'
-                        },
-                        if (mouse_dec.btn.get() & 0x04) != 0 {
-                            'C'
-                        } else {
-                            'c'
-                        },
-                        if (mouse_dec.btn.get() & 0x02) != 0 {
-                            'R'
-                        } else {
-                            'r'
-                        },
-                        mouse_dec.x.get(),
-                        mouse_dec.y.get(),
-                    );
                     let (new_x, new_y) = sheet_manager.get_new_point(
                         shi_mouse,
                         mouse_dec.x.get(),
@@ -446,7 +416,48 @@ pub extern "C" fn hrmain() {
                     sheet_manager.slide(shi_mouse, new_x, new_y);
                     // 左クリックをおしていた場合
                     if (mouse_dec.btn.get() & 0x01) != 0 {
-                        sheet_manager.slide(shi_win, new_x - 80, new_y - 8);
+                        if moving {
+                            let x = new_x - mouse_move_x;
+                            let y = new_y - mouse_move_y;
+                            let sheet = sheet_manager.sheets_data[target_sheet_index];
+                            sheet_manager.slide(target_sheet_index, x + sheet.x, y + sheet.y);
+                            mouse_move_x = new_x;
+                            mouse_move_y = new_y;
+                        } else {
+                            // Sheetの順番を入れ替え
+                            if let Some(z) = sheet_manager.z_max {
+                                let mut h = z - 1;
+                                while h > 0 {
+                                    target_sheet_index = sheet_manager.sheets[h];
+                                    let sheet = sheet_manager.sheets_data[target_sheet_index];
+                                    let x = new_x - sheet.x;
+                                    let y = new_y - sheet.y;
+
+                                    if 0 <= x && x < sheet.width && 0 <= y && y < sheet.height {
+                                        let color = unsafe {
+                                            *((sheet.buf_addr
+                                                + y as usize * sheet.width as usize
+                                                + x as usize)
+                                                as *const i8)
+                                        };
+                                        if to_color(color) != sheet.transparent {
+                                            sheet_manager.updown(target_sheet_index, Some(z - 1));
+                                            if 3 <= x && x < sheet.width - 3 && 3 <= y && y < 21 {
+                                                // ウィンドウ移動モードへ
+                                                moving = true;
+                                                mouse_move_x = new_x;
+                                                mouse_move_y = new_y
+                                            }
+                                            break;
+                                        }
+                                    }
+                                    h -= 1;
+                                }
+                            }
+                        }
+                    } else {
+                        // 左クリックを押してなかったらウィンドウ移動モードからもどす
+                        moving = false;
                     }
                 }
             } else {
