@@ -448,6 +448,35 @@ pub extern "C" fn hrmain() {
                                                 mouse_move_x = new_x;
                                                 mouse_move_y = new_y
                                             }
+                                            if sheet.width - 21 <= x
+                                                && x < sheet.width - 5
+                                                && 5 <= y
+                                                && y < 19
+                                            {
+                                                //×ボタンクリック
+                                                if sheet.task_index != 0 {
+                                                    let console_addr =
+                                                        unsafe { *(CONSOLE_ADDR as *const usize) };
+                                                    let console = unsafe {
+                                                        &mut *(console_addr as *mut Console)
+                                                    };
+                                                    let message = b"\nBreak(mouse) :\n";
+                                                    console.put_string(
+                                                        message.as_ptr() as usize,
+                                                        message.len(),
+                                                        8,
+                                                    );
+                                                    let mut console_task_mut = &mut task_manager
+                                                        .tasks_data[console_task_index];
+                                                    cli();
+                                                    console_task_mut.tss.eax =
+                                                        unsafe { &console_task_mut.tss.esp0 }
+                                                            as *const i32
+                                                            as i32;
+                                                    console_task_mut.tss.eip = end_app as i32;
+                                                    sti();
+                                                }
+                                            }
                                             break;
                                         }
                                     }
