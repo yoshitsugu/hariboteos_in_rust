@@ -17,27 +17,26 @@ mod mt;
 mod sheet;
 mod timer;
 mod vga;
+mod window;
 
 use core::fmt::Write;
 use core::panic::PanicInfo;
 
 use asm::{cli, end_app, out8, sti};
-use console::{
-    console_task, Console, CONSOLE_ADDR, CONSOLE_BACKSPACE, CONSOLE_CURSOR_OFF, CONSOLE_CURSOR_ON,
-    CONSOLE_ENTER,
-};
+use console::{console_task, Console, CONSOLE_ADDR, CONSOLE_BACKSPACE, CONSOLE_ENTER};
 use fifo::Fifo;
 use interrupt::PORT_KEYDAT;
 use keyboard::{wait_kbc_sendready, KEYBOARD_OFFSET, KEYCMD_LED, KEYTABLE0, KEYTABLE1, LOCK_KEYS};
 use memory::{MemMan, MEMMAN_ADDR};
 use mouse::{Mouse, MouseDec, MOUSE_CURSOR_HEIGHT, MOUSE_CURSOR_WIDTH};
 use mt::{TaskManager, TASK_MANAGER_ADDR};
-use sheet::SheetManager;
+use sheet::{SheetFlag, SheetManager};
 use timer::TIMER_MANAGER;
 use vga::{
     boxfill, init_palette, init_screen, make_textbox, make_window, make_wtitle, to_color, Color,
     ScreenWriter, SCREEN_HEIGHT, SCREEN_WIDTH,
 };
+use window::*;
 
 pub static mut SHEET_MANAGER_ADDR: usize = 0;
 
@@ -178,13 +177,21 @@ pub extern "C" fn hrmain() {
     sheet_manager.updown(shi_mouse, Some(3));
 
     // カーソル
-    let min_cursor_x = 8;
+    let min_cursor_x = 8 as isize;
     let max_cursor_x = 144;
     let mut cursor_x = min_cursor_x;
     let mut cursor_c = Color::White;
-    let mut cursor_on = true;
 
-    let mut active_window: usize = 0;
+    let mut active_window: usize = shi_win;
+    {
+        let mut sheet_console = &mut sheet_manager.sheets_data[shi_console];
+        sheet_console.task_index = console_task_index;
+        sheet_console.cursor = true;
+    }
+    {
+        let mut sheet_win = &mut sheet_manager.sheets_data[shi_win];
+        sheet_win.cursor = true;
+    }
 
     // シフトキー
     let mut key_shift = (false, false);
@@ -202,7 +209,7 @@ pub extern "C" fn hrmain() {
     let mut target_sheet_index = 0;
 
     loop {
-        // キーボードコントローラに送ルデータがあれば送る
+        // キーボードコントローラに送るデータがあれば送る
         if keycmd.status() > 0 && keycmd_wait < 0 {
             keycmd_wait = keycmd.get().unwrap() as u8 as i32;
             wait_kbc_sendready();
@@ -212,6 +219,20 @@ pub extern "C" fn hrmain() {
         if fifo.status() != 0 {
             let i = fifo.get().unwrap();
             sti();
+            let active_sheet = sheet_manager.sheets_data[active_window];
+            if active_sheet.flag == SheetFlag::AVAILABLE {
+                // ウィンドウが閉じられた
+                if let Some(zmax) = sheet_manager.z_max {
+                    active_window = sheet_manager.sheets[zmax - 1];
+                    cursor_c = window_on(
+                        sheet_manager,
+                        task_manager,
+                        active_window,
+                        shi_win,
+                        cursor_c,
+                    );
+                }
+            }
             if KEYBOARD_OFFSET <= i && i <= 511 {
                 let key = i - KEYBOARD_OFFSET;
                 let mut chr = 0 as u8;
@@ -231,7 +252,7 @@ pub extern "C" fn hrmain() {
                     }
                 }
                 if chr != 0 {
-                    if active_window == 0 {
+                    if active_window == shi_win {
                         if cursor_x < max_cursor_x {
                             write_with_bg!(
                                 sheet_manager,
@@ -256,7 +277,7 @@ pub extern "C" fn hrmain() {
                 }
                 // Enterキー
                 if key == 0x1c {
-                    if active_window != 0 {
+                    if active_window != shi_win {
                         let ctask = task_manager.tasks_data[console_task_index];
                         let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
                         fifo.put(CONSOLE_ENTER + KEYBOARD_OFFSET).unwrap();
@@ -264,7 +285,7 @@ pub extern "C" fn hrmain() {
                 }
                 // バックスペース
                 if key == 0x0e {
-                    if active_window == 0 && cursor_x > min_cursor_x {
+                    if active_window == shi_win && cursor_x > min_cursor_x {
                         write_with_bg!(
                             sheet_manager,
                             shi_win,
@@ -288,53 +309,26 @@ pub extern "C" fn hrmain() {
                 if key == 0x0f {
                     let sheet_win = sheet_manager.sheets_data[shi_win];
                     let sheet_console = sheet_manager.sheets_data[shi_console];
-                    if active_window == 0 {
-                        active_window = 1;
-                        make_wtitle(
-                            sheet_win.buf_addr,
-                            sheet_win.width as isize,
-                            sheet_win.height as isize,
-                            "task_a",
-                            false,
-                        );
-                        make_wtitle(
-                            sheet_console.buf_addr,
-                            sheet_console.width as isize,
-                            sheet_console.height as isize,
-                            "console",
-                            true,
-                        );
-                        // カーソルを消す
-                        cursor_on = false;
-                        // コンソールのカーソルを表示
-                        let ctask = task_manager.tasks_data[console_task_index];
-                        let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
-                        fifo.put(CONSOLE_CURSOR_ON).unwrap();
-                    } else {
-                        active_window = 0;
-                        make_wtitle(
-                            sheet_win.buf_addr,
-                            sheet_win.width as isize,
-                            sheet_win.height as isize,
-                            "task_a",
-                            true,
-                        );
-                        make_wtitle(
-                            sheet_console.buf_addr,
-                            sheet_console.width as isize,
-                            sheet_console.height as isize,
-                            "console",
-                            false,
-                        );
-                        // カーソルを表示
-                        cursor_on = true;
-                        // コンソールのカーソルを消す
-                        let ctask = task_manager.tasks_data[console_task_index];
-                        let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
-                        fifo.put(CONSOLE_CURSOR_OFF).unwrap();
+                    cursor_c = window_off(
+                        sheet_manager,
+                        task_manager,
+                        active_window,
+                        shi_win,
+                        cursor_c,
+                        cursor_x as i32,
+                    );
+                    let mut j = active_sheet.z.unwrap() - 1;
+                    if j == 0 && sheet_manager.z_max.is_some() && sheet_manager.z_max.unwrap() > 0 {
+                        j = sheet_manager.z_max.unwrap() - 1;
                     }
-                    sheet_manager.refresh(shi_win, 0, 0, sheet_win.width, 21);
-                    sheet_manager.refresh(shi_console, 0, 0, sheet_console.width, 21);
+                    active_window = sheet_manager.sheets[j];
+                    cursor_c = window_on(
+                        sheet_manager,
+                        task_manager,
+                        active_window,
+                        shi_win,
+                        cursor_c,
+                    );
                 }
                 // 左シフト ON
                 if key == 0x2a {
@@ -454,7 +448,7 @@ pub extern "C" fn hrmain() {
                                                 && y < 19
                                             {
                                                 //×ボタンクリック
-                                                if sheet.task_index != 0 {
+                                                if sheet.from_app {
                                                     let console_addr =
                                                         unsafe { *(CONSOLE_ADDR as *const usize) };
                                                     let console = unsafe {
@@ -490,9 +484,10 @@ pub extern "C" fn hrmain() {
                     }
                 }
             } else {
+                let sheet_win = sheet_manager.sheets_data[shi_win];
                 if i != 0 {
                     TIMER_MANAGER.lock().init_timer(timer_index3, fifo_addr, 0);
-                    cursor_c = if cursor_on {
+                    cursor_c = if sheet_win.cursor {
                         Color::Black
                     } else {
                         Color::White
@@ -502,7 +497,7 @@ pub extern "C" fn hrmain() {
                     cursor_c = Color::White;
                 }
                 TIMER_MANAGER.lock().set_time(timer_index3, 50);
-                if cursor_on {
+                if sheet_win.cursor {
                     boxfill(buf_win_addr, 144, cursor_c, cursor_x, 28, cursor_x + 8, 43);
                     sheet_manager.refresh(shi_win, cursor_x as i32, 28, cursor_x as i32 + 8, 44)
                 }

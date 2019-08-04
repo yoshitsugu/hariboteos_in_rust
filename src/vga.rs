@@ -456,3 +456,24 @@ pub fn draw_line(buf_addr: usize, bxsize: i32, x0: i32, y0: i32, x1: i32, y1: i3
         y += dy;
     }
 }
+
+pub fn toggle_title_color(buf_addr: usize, xsize: usize, to_active: bool) {
+    let bg_active = Color::DarkBlue;
+    let fg_active = Color::White;
+    let bg_inactive = Color::DarkGray;
+    let fg_inactive = Color::LightGray;
+    let bg_from = if to_active { bg_inactive } else { bg_active };
+    let fg_from = if to_active { fg_inactive } else { fg_active };
+    let bg_to = if to_active { bg_active } else { bg_inactive };
+    let fg_to = if to_active { fg_active } else { fg_inactive };
+    for y in 3..=20 {
+        for x in 3..=(xsize - 4) {
+            let c = unsafe { &mut *((buf_addr + y * xsize + x) as *mut Color) };
+            if *c == fg_from && x <= xsize - 22 {
+                *c = fg_to;
+            } else if *c == bg_from {
+                *c = bg_to;
+            }
+        }
+    }
+}

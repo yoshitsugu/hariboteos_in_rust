@@ -75,6 +75,7 @@ pub extern "C" fn hrb_api(
             let mut new_sheet = &mut sheet_manager.sheets_data[sheet_index];
             new_sheet.set(ebx as usize + ds_base, esi, edi, to_color(eax as i8));
             new_sheet.task_index = task_index;
+            new_sheet.from_app = true;
         }
         let title = unsafe { *((ecx as usize + ds_base) as *const [u8; 30]) };
         let mut t = title.iter().take_while(|t| **t != 0);
@@ -558,7 +559,10 @@ impl Console {
                 let sheet_manager = unsafe { &mut *(self.sheet_manager_addr as *mut SheetManager) };
                 for i in 0..MAX_SHEETS {
                     let sheet = sheet_manager.sheets_data[i];
-                    if sheet.task_index == task_index && sheet.flag != SheetFlag::AVAILABLE {
+                    if sheet.task_index == task_index
+                        && sheet.flag != SheetFlag::AVAILABLE
+                        && sheet.from_app
+                    {
                         sheet_manager.free(i);
                     }
                 }

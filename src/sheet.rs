@@ -18,6 +18,8 @@ pub struct Sheet {
     pub transparent: Option<Color>,
     pub z: Option<usize>, // 重ねあわせたときの高さ
     pub flag: SheetFlag,
+    pub cursor: bool,
+    pub from_app: bool,
     pub task_index: usize,
 }
 
@@ -32,6 +34,8 @@ impl Sheet {
             transparent: None,
             z: None,
             flag: SheetFlag::AVAILABLE,
+            cursor: false,
+            from_app: false,
             task_index: 0,
         }
     }
