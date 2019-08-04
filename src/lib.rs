@@ -436,6 +436,11 @@ pub extern "C" fn hrmain() {
                                         };
                                         if to_color(color) != sheet.transparent {
                                             sheet_manager.updown(target_sheet_index, Some(z - 1));
+                                            if active_window != target_sheet_index {
+                                                cursor_c = window_off(sheet_manager, task_manager, active_window, shi_win, cursor_c, cursor_x as i32);
+                                                active_window = target_sheet_index;
+                                                cursor_c = window_on(sheet_manager, task_manager, active_window, shi_win, cursor_c);
+                                            }
                                             if 3 <= x && x < sheet.width - 3 && 3 <= y && y < 21 {
                                                 // ウィンドウ移動モードへ
                                                 moving = true;
