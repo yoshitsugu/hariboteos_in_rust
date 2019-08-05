@@ -20,7 +20,8 @@ const MAX_TIMER: usize = 500;
 pub struct Timer {
     pub timeout: u32,
     pub flag: TimerFlag,
-    pub data: u8,
+    pub from_app: bool,
+    pub data: i32,
     pub fifo_addr: usize,
     pub next: Option<usize>,
 }
@@ -30,6 +31,7 @@ impl Timer {
         Timer {
             timeout: 0,
             flag: TimerFlag::AVAILABLE,
+            from_app: false,
             data: 0,
             fifo_addr: 0,
             next: None,
@@ -63,6 +65,7 @@ impl TimerManager {
         tm.timers_data[MAX_TIMER - 1] = Timer {
             timeout: 0xffffffff,
             flag: TimerFlag::COUNTING,
+            from_app: false,
             data: 0,
             fifo_addr: 0,
             next: None,
@@ -125,7 +128,7 @@ impl TimerManager {
         }
     }
 
-    pub fn init_timer(&mut self, timer_index: usize, fifo_addr: usize, data: u8) {
+    pub fn init_timer(&mut self, timer_index: usize, fifo_addr: usize, data: i32) {
         let mut timer = &mut self.timers_data[timer_index];
         timer.fifo_addr = fifo_addr;
         timer.data = data;
@@ -134,6 +137,59 @@ impl TimerManager {
     pub fn free(&mut self, i: usize) {
         let mut timer = &mut self.timers_data[i];
         timer.flag = TimerFlag::AVAILABLE;
+    }
+
+    pub fn cancel(&mut self, timer_index: usize) -> bool {
+        let timer = self.timers_data[timer_index];
+        let eflags = load_eflags();
+        cli();
+        if timer.flag == TimerFlag::COUNTING {
+            if self.t0.is_some() && timer_index == self.t0.unwrap() {
+                if let Some(next) = timer.next {
+                    let n = &mut self.timers_data[next];
+                    self.next_tick = n.timeout;
+                }
+            } else {
+                if let Some(t0) = self.t0 {
+                    let mut t_index = t0;
+                    let mut t = self.timers_data[t_index];
+                    loop {
+                        if let Some(next) = t.next {
+                            if next == timer_index {
+                                break;
+                            }
+                            t_index = next;
+                            t = self.timers_data[next];
+                        } else {
+                            break;
+                        }
+                    }
+                    let mut t = &mut self.timers_data[t_index];
+                    t.next = timer.next;
+                }
+            }
+            {
+                let mut timer = &mut self.timers_data[timer_index];
+                timer.flag = TimerFlag::USED;
+            }
+            store_eflags(eflags);
+            return true;
+        }
+        store_eflags(eflags);
+        false
+    }
+
+    pub fn cancel_all(&mut self, fifo_addr: usize) {
+        let eflags = load_eflags();
+        cli();
+        for i in 0..MAX_TIMER {
+            let t = self.timers_data[i];
+            if t.flag != TimerFlag::AVAILABLE && t.from_app && t.fifo_addr == fifo_addr {
+                self.cancel(i);
+                self.free(i);
+            }
+        }
+        store_eflags(eflags);
     }
 }
 

@@ -1,5 +1,6 @@
 OUTPUT_DIR := build
 ASM_DIR := asm
+APPS_DIR := apps
 OUTPUT_DIR_KEEP := $(OUTPUT_DIR)/.keep
 IMG := $(OUTPUT_DIR)/haribote.img
 
@@ -9,18 +10,18 @@ default:
 $(OUTPUT_DIR)/%.bin: $(ASM_DIR)/%.asm Makefile $(OUTPUT_DIR_KEEP)
 	nasm  $< -o $@
 
-$(OUTPUT_DIR)/%.hrb: $(ASM_DIR)/%.asm Makefile $(OUTPUT_DIR_KEEP)
-	nasm -f elf $< -o $(OUTPUT_DIR)/$*.o
-	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $(OUTPUT_DIR)/$*.o -o $@
+# $(OUTPUT_DIR)/%.hrb: $(ASM_DIR)/%.asm Makefile $(OUTPUT_DIR_KEEP)
+# 	nasm -f elf $< -o $(OUTPUT_DIR)/$*.o
+# 	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $(OUTPUT_DIR)/$*.o -o $@
 
 $(OUTPUT_DIR)/haribote.sys : $(OUTPUT_DIR)/asmhead.bin $(OUTPUT_DIR)/kernel.bin
 	cat $^ > $@
 
-$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/hello.hrb  $(OUTPUT_DIR)/rs.hrb Makefile
+$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/lines.hrb $(OUTPUT_DIR)/timer.hrb Makefile
 	mformat -f 1440 -C -B $< -i $@ ::
 	mcopy $(OUTPUT_DIR)/haribote.sys -i $@ ::
-	mcopy $(OUTPUT_DIR)/hello.hrb -i $@ ::
-	mcopy $(OUTPUT_DIR)/rs.hrb -i $@ ::
+	mcopy $(OUTPUT_DIR)/lines.hrb -i $@ ::
+	mcopy $(OUTPUT_DIR)/timer.hrb -i $@ ::
 
 asm :
 	make $(OUTPUT_DIR)/ipl.bin 
@@ -53,12 +54,12 @@ $(OUTPUT_DIR_KEEP):
 	mkdir -p $(OUTPUT_DIR)
 	touch $@
 
-$(OUTPUT_DIR)/libhello.a: $(OUTPUT_DIR_KEEP)
-	cd hello/ && cargo xbuild --target-dir ../$(OUTPUT_DIR)
-	cp $(OUTPUT_DIR)/i686-haribote/debug/libhello.a $(OUTPUT_DIR)/
+$(OUTPUT_DIR)/%.a: $(APPS_DIR)/%
+	cd $(APPS_DIR)/$* && cargo xbuild --target-dir ../../$(OUTPUT_DIR)
+	cp $(OUTPUT_DIR)/i686-haribote/debug/lib$*.a $@
 
-$(OUTPUT_DIR)/app_asmfunc.o: hello/src/asmfunc.asm Makefile $(OUTPUT_DIR_KEEP)
+$(OUTPUT_DIR)/app_asmfunc.o: apps/asmfunc.asm Makefile $(OUTPUT_DIR_KEEP)
 	nasm -f elf $< -o $@
 
-$(OUTPUT_DIR)/rs.hrb: $(OUTPUT_DIR)/libhello.a $(OUTPUT_DIR)/app_asmfunc.o $(OUTPUT_DIR_KEEP)
+$(OUTPUT_DIR)/%.hrb: $(OUTPUT_DIR)/%.a $(OUTPUT_DIR)/app_asmfunc.o $(OUTPUT_DIR_KEEP)
 	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $< $(OUTPUT_DIR)/app_asmfunc.o -o $@

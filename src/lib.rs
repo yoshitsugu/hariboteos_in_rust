@@ -33,8 +33,8 @@ use mt::{TaskManager, TASK_MANAGER_ADDR};
 use sheet::{SheetFlag, SheetManager};
 use timer::TIMER_MANAGER;
 use vga::{
-    boxfill, init_palette, init_screen, make_textbox, make_window, make_wtitle, to_color, Color,
-    ScreenWriter, SCREEN_HEIGHT, SCREEN_WIDTH,
+    boxfill, init_palette, init_screen, make_textbox, make_window, to_color, Color, ScreenWriter,
+    SCREEN_HEIGHT, SCREEN_WIDTH,
 };
 use window::*;
 
@@ -307,8 +307,6 @@ pub extern "C" fn hrmain() {
                 }
                 // タブ
                 if key == 0x0f {
-                    let sheet_win = sheet_manager.sheets_data[shi_win];
-                    let sheet_console = sheet_manager.sheets_data[shi_console];
                     cursor_c = window_off(
                         sheet_manager,
                         task_manager,
@@ -437,9 +435,22 @@ pub extern "C" fn hrmain() {
                                         if to_color(color) != sheet.transparent {
                                             sheet_manager.updown(target_sheet_index, Some(z - 1));
                                             if active_window != target_sheet_index {
-                                                cursor_c = window_off(sheet_manager, task_manager, active_window, shi_win, cursor_c, cursor_x as i32);
+                                                cursor_c = window_off(
+                                                    sheet_manager,
+                                                    task_manager,
+                                                    active_window,
+                                                    shi_win,
+                                                    cursor_c,
+                                                    cursor_x as i32,
+                                                );
                                                 active_window = target_sheet_index;
-                                                cursor_c = window_on(sheet_manager, task_manager, active_window, shi_win, cursor_c);
+                                                cursor_c = window_on(
+                                                    sheet_manager,
+                                                    task_manager,
+                                                    active_window,
+                                                    shi_win,
+                                                    cursor_c,
+                                                );
                                             }
                                             if 3 <= x && x < sheet.width - 3 && 3 <= y && y < 21 {
                                                 // ウィンドウ移動モードへ

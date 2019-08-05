@@ -5,8 +5,6 @@
 
 use core::panic::PanicInfo;
 
-// use rand::prelude::*;
-
 extern "C" {
     fn _api_initmalloc();
     fn _api_malloc(size: usize) -> usize;
@@ -38,22 +36,6 @@ pub extern "C" fn hrmain() {
         }
     }
     close_window(sheet_index);
-    // let sheet_index = open_window(buf_addr, 150, 100, -1, b"star1".as_ptr() as usize) as usize;
-    // box_fil_window(
-    //     sheet_index + SHEET_UNREFRESH_OFFSET,
-    //     6,
-    //     26,
-    //     143,
-    //     93,
-    //     0, /* 黒 */
-    // );
-    // let mut rng = StdRng::seed_from_u64(123);
-    // for i in 0..50 {
-    //     let x = (rng.next_u32() % 137 + 6) as i32;
-    //     let y = (rng.next_u32() % 67 + 26) as i32;
-    //     point_window(sheet_index + SHEET_UNREFRESH_OFFSET, x, y, 3 /* 黄 */);
-    // }
-    // refresh_window(sheet_index, 6, 26, 144, 94);
     unsafe {
         _api_free(buf_addr, 160 * 100);
     }

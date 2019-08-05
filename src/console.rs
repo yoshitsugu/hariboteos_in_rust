@@ -219,12 +219,32 @@ pub extern "C" fn hrb_api(
                 console.cursor_c = Color::White
             } else if i == 3 {
                 console.cursor_c = Color::Black
-            } else if 256 <= i && i <= 511 {
+            } else if 256 <= i {
                 let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut u32) };
                 *reg_eax = i - 256;
                 return 0;
             }
         }
+    } else if edx == 16 {
+        let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut usize) };
+        {
+            let mut timer_manager = TIMER_MANAGER.lock();
+            let timer_index = timer_manager.alloc().unwrap();
+            let mut timer = &mut timer_manager.timers_data[timer_index];
+            timer.from_app = true;
+            *reg_eax = timer_index;
+        }
+    } else if edx == 17 {
+        let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+        let task_index = task_manager.now_index();
+        let task = &task_manager.tasks_data[task_index];
+        TIMER_MANAGER
+            .lock()
+            .init_timer(ebx as usize, task.fifo_addr, eax + 256);
+    } else if edx == 18 {
+        TIMER_MANAGER.lock().set_time(ebx as usize, eax as u32);
+    } else if edx == 19 {
+        TIMER_MANAGER.lock().free(ebx as usize);
     }
     0
 }
@@ -567,6 +587,7 @@ impl Console {
                     }
                 }
             }
+            TIMER_MANAGER.lock().cancel_all(task.fifo_addr);
             self.newline();
         } else {
             self.display_error("Bad Format");
