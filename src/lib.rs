@@ -23,7 +23,7 @@ use core::fmt::Write;
 use core::panic::PanicInfo;
 
 use asm::{cli, end_app, out8, sti};
-use console::{console_task, Console, CONSOLE_ADDR, CONSOLE_BACKSPACE, CONSOLE_ENTER};
+use console::{console_task, Console, CONSOLE_BACKSPACE, CONSOLE_ENTER};
 use fifo::Fifo;
 use interrupt::PORT_KEYDAT;
 use keyboard::{wait_kbc_sendready, KEYBOARD_OFFSET, KEYCMD_LED, KEYTABLE0, KEYTABLE1, LOCK_KEYS};
@@ -123,58 +123,71 @@ pub extern "C" fn hrmain() {
 
     const CONSOLE_WIDTH: usize = 256;
     const CONSOLE_HEIGHT: usize = 165;
+    const CONSOLE_COUNT: usize = 2;
+    let mut console_sheets: [usize; CONSOLE_COUNT] = [0; CONSOLE_COUNT];
+    let mut console_bufs: [usize; CONSOLE_COUNT] = [0; CONSOLE_COUNT];
+    let mut console_tasks: [usize; CONSOLE_COUNT] = [0; CONSOLE_COUNT];
 
-    let shi_console = sheet_manager.alloc().unwrap();
-    let buf_console = memman
-        .alloc_4k((CONSOLE_WIDTH * CONSOLE_HEIGHT) as u32)
-        .unwrap() as usize;
-    sheet_manager.set_buf(
-        shi_console,
-        buf_console,
-        CONSOLE_WIDTH as i32,
-        CONSOLE_HEIGHT as i32,
-        None,
-    );
-    make_window(
-        buf_console,
-        CONSOLE_WIDTH as isize,
-        CONSOLE_HEIGHT as isize,
-        "console",
-        false,
-    );
-    make_textbox(
-        buf_console,
-        CONSOLE_WIDTH as isize,
-        8,
-        28,
-        240,
-        128,
-        Color::Black,
-    );
-    let console_task_index = task_manager.alloc().unwrap();
-    let mut console_task_mut = &mut task_manager.tasks_data[console_task_index];
-    let console_esp = memman.alloc_4k(64 * 1024).unwrap() + 64 * 1024 - 12;
-    console_task_mut.tss.esp = console_esp as i32;
-    console_task_mut.tss.eip = console_task as i32;
-    console_task_mut.tss.es = 1 * 8;
-    console_task_mut.tss.cs = 2 * 8;
-    console_task_mut.tss.ss = 1 * 8;
-    console_task_mut.tss.ds = 1 * 8;
-    console_task_mut.tss.fs = 1 * 8;
-    console_task_mut.tss.gs = 1 * 8;
-    let ptr = unsafe { &mut *((console_task_mut.tss.esp + 4) as *mut usize) };
-    *ptr = shi_console;
-    let ptr = unsafe { &mut *((console_task_mut.tss.esp + 8) as *mut usize) };
-    *ptr = memtotal as usize;
-    task_manager.run(console_task_index, 2, 2);
+    for ci in 0..CONSOLE_COUNT {
+        console_sheets[ci] = sheet_manager.alloc().unwrap();
+        console_bufs[ci] = memman
+            .alloc_4k((CONSOLE_WIDTH * CONSOLE_HEIGHT) as u32)
+            .unwrap() as usize;
+        sheet_manager.set_buf(
+            console_sheets[ci],
+            console_bufs[ci],
+            CONSOLE_WIDTH as i32,
+            CONSOLE_HEIGHT as i32,
+            None,
+        );
+        make_window(
+            console_bufs[ci],
+            CONSOLE_WIDTH as isize,
+            CONSOLE_HEIGHT as isize,
+            "console",
+            false,
+        );
+        make_textbox(
+            console_bufs[ci],
+            CONSOLE_WIDTH as isize,
+            8,
+            28,
+            240,
+            128,
+            Color::Black,
+        );
+        console_tasks[ci] = task_manager.alloc().unwrap();
+        let mut console_task_mut = &mut task_manager.tasks_data[console_tasks[ci]];
+        let console_esp = memman.alloc_4k(64 * 1024).unwrap() + 64 * 1024 - 12;
+        console_task_mut.tss.esp = console_esp as i32;
+        console_task_mut.tss.eip = console_task as i32;
+        console_task_mut.tss.es = 1 * 8;
+        console_task_mut.tss.cs = 2 * 8;
+        console_task_mut.tss.ss = 1 * 8;
+        console_task_mut.tss.ds = 1 * 8;
+        console_task_mut.tss.fs = 1 * 8;
+        console_task_mut.tss.gs = 1 * 8;
+        let ptr = unsafe { &mut *((console_task_mut.tss.esp + 4) as *mut usize) };
+        *ptr = console_sheets[ci];
+        let ptr = unsafe { &mut *((console_task_mut.tss.esp + 8) as *mut usize) };
+        *ptr = memtotal as usize;
+        task_manager.run(console_tasks[ci], 2, 2);
+        {
+            let mut sheet_console = &mut sheet_manager.sheets_data[console_sheets[ci]];
+            sheet_console.task_index = console_tasks[ci];
+            sheet_console.cursor = true;
+        }
+    }
 
     sheet_manager.slide(shi_mouse, mx, my);
-    sheet_manager.slide(shi_console, 32, 4);
+    sheet_manager.slide(console_sheets[0], 56, 6);
+    sheet_manager.slide(console_sheets[1], 8, 2);
     sheet_manager.slide(shi_win, 64, 56);
     sheet_manager.updown(shi_bg, Some(0));
-    sheet_manager.updown(shi_console, Some(1));
-    sheet_manager.updown(shi_win, Some(2));
-    sheet_manager.updown(shi_mouse, Some(3));
+    sheet_manager.updown(console_sheets[0], Some(1));
+    sheet_manager.updown(console_sheets[1], Some(2));
+    sheet_manager.updown(shi_win, Some(3));
+    sheet_manager.updown(shi_mouse, Some(4));
 
     // カーソル
     let min_cursor_x = 8 as isize;
@@ -183,11 +196,6 @@ pub extern "C" fn hrmain() {
     let mut cursor_c = Color::White;
 
     let mut active_window: usize = shi_win;
-    {
-        let mut sheet_console = &mut sheet_manager.sheets_data[shi_console];
-        sheet_console.task_index = console_task_index;
-        sheet_console.cursor = true;
-    }
     {
         let mut sheet_win = &mut sheet_manager.sheets_data[shi_win];
         sheet_win.cursor = true;
@@ -270,7 +278,7 @@ pub extern "C" fn hrmain() {
                             cursor_x += 8;
                         }
                     } else {
-                        let ctask = task_manager.tasks_data[console_task_index];
+                        let ctask = task_manager.tasks_data[active_sheet.task_index];
                         let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
                         fifo.put(chr as u32 + KEYBOARD_OFFSET).unwrap();
                     }
@@ -278,7 +286,7 @@ pub extern "C" fn hrmain() {
                 // Enterキー
                 if key == 0x1c {
                     if active_window != shi_win {
-                        let ctask = task_manager.tasks_data[console_task_index];
+                        let ctask = task_manager.tasks_data[active_sheet.task_index];
                         let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
                         fifo.put(CONSOLE_ENTER + KEYBOARD_OFFSET).unwrap();
                     }
@@ -300,7 +308,7 @@ pub extern "C" fn hrmain() {
                         );
                         cursor_x -= 8;
                     } else {
-                        let ctask = task_manager.tasks_data[console_task_index];
+                        let ctask = task_manager.tasks_data[active_sheet.task_index];
                         let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
                         fifo.put(CONSOLE_BACKSPACE + KEYBOARD_OFFSET).unwrap();
                     }
@@ -326,6 +334,18 @@ pub extern "C" fn hrmain() {
                         active_window,
                         shi_win,
                         cursor_c,
+                    );
+                    sheet_manager.updown(
+                        active_window,
+                        if let Some(zmax) = sheet_manager.z_max {
+                            if zmax > 0 {
+                                Some(zmax - 1)
+                            } else {
+                                Some(0)
+                            }
+                        } else {
+                            None
+                        },
                     );
                 }
                 // 左シフト ON
@@ -364,13 +384,14 @@ pub extern "C" fn hrmain() {
                 }
                 // Shift + F1 でアプリケーションを強制終了
                 {
-                    let mut console_task_mut = &mut task_manager.tasks_data[console_task_index];
+                    let mut console_task_mut =
+                        &mut task_manager.tasks_data[active_sheet.task_index];
                     if key == 0x3b
                         && (key_shift.0 == true || key_shift.1 == true)
                         && console_task_mut.tss.ss0 != 0
                     {
-                        let console_addr = unsafe { *(CONSOLE_ADDR as *const usize) };
-                        let console = unsafe { &mut *(console_addr as *mut Console) };
+                        let console =
+                            unsafe { &mut *(console_task_mut.console_addr as *mut Console) };
                         let message = b"\nBreak(key) :\n";
                         console.put_string(message.as_ptr() as usize, message.len(), 8);
                         cli();
@@ -465,10 +486,10 @@ pub extern "C" fn hrmain() {
                                             {
                                                 //×ボタンクリック
                                                 if sheet.from_app {
-                                                    let console_addr =
-                                                        unsafe { *(CONSOLE_ADDR as *const usize) };
+                                                    let task =
+                                                        task_manager.tasks_data[sheet.task_index];
                                                     let console = unsafe {
-                                                        &mut *(console_addr as *mut Console)
+                                                        &mut *(task.console_addr as *mut Console)
                                                     };
                                                     let message = b"\nBreak(mouse) :\n";
                                                     console.put_string(
@@ -476,14 +497,17 @@ pub extern "C" fn hrmain() {
                                                         message.len(),
                                                         8,
                                                     );
-                                                    let mut console_task_mut = &mut task_manager
-                                                        .tasks_data[console_task_index];
                                                     cli();
-                                                    console_task_mut.tss.eax =
-                                                        unsafe { &console_task_mut.tss.esp0 }
-                                                            as *const i32
-                                                            as i32;
-                                                    console_task_mut.tss.eip = end_app as i32;
+                                                    {
+                                                        let mut console_task_mut =
+                                                            &mut task_manager.tasks_data
+                                                                [sheet.task_index];
+                                                        console_task_mut.tss.eax =
+                                                            unsafe { &console_task_mut.tss.esp0 }
+                                                                as *const i32
+                                                                as i32;
+                                                        console_task_mut.tss.eip = end_app as i32;
+                                                    }
                                                     sti();
                                                 }
                                             }

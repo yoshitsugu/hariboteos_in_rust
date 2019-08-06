@@ -49,6 +49,8 @@ pub struct Task {
     pub priority: i32,
     pub tss: TSS,
     pub fifo_addr: usize,
+    pub console_addr: usize,
+    pub ds_base: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +69,8 @@ impl Task {
             priority: 2,
             tss: Default::default(),
             fifo_addr: 0,
+            console_addr: 0,
+            ds_base: 0,
         }
     }
 }

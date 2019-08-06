@@ -20,8 +20,6 @@ const MIN_CURSOR_X: isize = 16;
 const MIN_CURSOR_Y: isize = 28;
 const MAX_CURSOR_X: isize = 8 + 240;
 const MAX_CURSOR_Y: isize = 28 + 112;
-pub const CONSOLE_ADDR: usize = 0x0fec;
-pub const DS_BASE_ADDR: usize = 0xfe8;
 const MAX_CMD: usize = 30;
 
 extern "C" {
@@ -39,9 +37,11 @@ pub extern "C" fn hrb_api(
     ecx: i32,
     eax: i32,
 ) -> usize {
-    let ds_base = unsafe { *(DS_BASE_ADDR as *const usize) };
-    let console_addr = unsafe { *(CONSOLE_ADDR as *const usize) };
-    let console = unsafe { &mut *(console_addr as *mut Console) };
+    let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+    let task_index = task_manager.now_index();
+    let task = task_manager.tasks_data[task_index];
+    let ds_base = task.ds_base;
+    let console = unsafe { &mut *(task.console_addr as *mut Console) };
     let sheet_manager = unsafe { &mut *(console.sheet_manager_addr as *mut SheetManager) };
     let reg = &eax as *const i32 as usize + 4;
 
@@ -63,15 +63,10 @@ pub extern "C" fn hrb_api(
         // 指定した文字数出力
         console.put_string(ebx as usize, ecx as usize, 8);
     } else if edx == 4 {
-        let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
-        let task_index = task_manager.now_index();
-        let task = &task_manager.tasks_data[task_index];
         return unsafe { &(task.tss.esp0) } as *const i32 as usize;
     } else if edx == 5 {
         let sheet_index = sheet_manager.alloc().unwrap();
         {
-            let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
-            let task_index = task_manager.now_index();
             let mut new_sheet = &mut sheet_manager.sheets_data[sheet_index];
             new_sheet.set(ebx as usize + ds_base, esi, edi, to_color(eax as i8));
             new_sheet.task_index = task_index;
@@ -195,12 +190,7 @@ pub extern "C" fn hrb_api(
     } else if edx == 15 {
         loop {
             cli();
-            let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
-            let task_index = task_manager.now_index();
-            let fifo = {
-                let task = &task_manager.tasks_data[task_index];
-                unsafe { &*(task.fifo_addr as *const Fifo) }
-            };
+            let fifo = { unsafe { &*(task.fifo_addr as *const Fifo) } };
             if fifo.status() == 0 {
                 if eax != 0 {
                     task_manager.sleep(task_index);
@@ -214,7 +204,6 @@ pub extern "C" fn hrb_api(
             let i = fifo.get().unwrap();
             sti();
             if i <= 1 {
-                let task = &task_manager.tasks_data[task_index];
                 TIMER_MANAGER
                     .lock()
                     .init_timer(console.timer_index, task.fifo_addr, 1);
@@ -239,9 +228,6 @@ pub extern "C" fn hrb_api(
             *reg_eax = timer_index;
         }
     } else if edx == 17 {
-        let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
-        let task_index = task_manager.now_index();
-        let task = &task_manager.tasks_data[task_index];
         TIMER_MANAGER
             .lock()
             .init_timer(ebx as usize, task.fifo_addr, eax + 256);
@@ -535,10 +521,14 @@ impl Console {
         let content_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
         finfo.load_file(content_addr, fat, ADR_DISKIMG + 0x003e00);
 
+        let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+        let task_index = task_manager.now_index();
+        let task = task_manager.tasks_data[task_index];
+
         // kernel.ldを使ってリンクされたファイルのみ実行可能
         let mut app_eip = 0;
-        let content_gdt = 1003;
-        let app_gdt = 1004;
+        let content_gdt = task.select / 8 + 1000;
+        let app_gdt = task.select / 8 + 2000;
         let mut app_mem_addr = 0;
         let mut segment_size = 0;
         let mut esp = 0;
@@ -553,8 +543,10 @@ impl Console {
                 let content_data_addr = unsafe { *((content_addr + 0x0014) as *const usize) };
 
                 app_mem_addr = memman.alloc_4k(segment_size as u32).unwrap() as usize;
-                let ptr = unsafe { &mut *(DS_BASE_ADDR as *mut usize) };
-                *ptr = app_mem_addr;
+                {
+                    let mut task = &mut task_manager.tasks_data[task_index];
+                    task.ds_base = app_mem_addr;
+                }
 
                 let gdt = unsafe { &mut *((ADR_GDT + content_gdt * 8) as *mut SegmentDescriptor) };
                 *gdt = SegmentDescriptor::new(
@@ -577,9 +569,6 @@ impl Console {
         }
 
         if app_eip > 0 {
-            let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
-            let task_index = task_manager.now_index();
-
             let task = &task_manager.tasks_data[task_index];
             let esp0_addr = unsafe { &(task.tss.esp0) } as *const i32 as usize;
             unsafe {
@@ -657,10 +646,6 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
 
     let fifo = Fifo::new(128, Some(task_index));
     let fifo_addr = &fifo as *const Fifo as usize;
-    {
-        let mut task = &mut task_manager.tasks_data[task_index];
-        task.fifo_addr = fifo_addr;
-    }
 
     // コマンドを保持するための配列
     let mut cmdline: [u8; MAX_CMD] = [0; MAX_CMD];
@@ -670,8 +655,9 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
 
     let mut console = Console::new(sheet_index, sheet_manager_addr);
     {
-        let ptr = unsafe { &mut *(CONSOLE_ADDR as *mut usize) };
-        *ptr = &console as *const Console as usize;
+        let mut task = &mut task_manager.tasks_data[task_index];
+        task.fifo_addr = fifo_addr;
+        task.console_addr = &console as *const Console as usize;
     }
 
     console.timer_index = TIMER_MANAGER.lock().alloc().unwrap();
@@ -845,8 +831,10 @@ pub extern "C" fn inthandler0d(esp: *const usize) -> usize {
 }
 
 pub extern "C" fn exception_handler(message: &[u8], esp: *const usize) -> usize {
-    let console_addr = unsafe { *(CONSOLE_ADDR as *const usize) };
-    let console = unsafe { &mut *(console_addr as *mut Console) };
+    let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+    let task_index = task_manager.now_index();
+    let task = &task_manager.tasks_data[task_index];
+    let console = unsafe { &mut *(task.console_addr as *mut Console) };
     let sheet_manager_addr = unsafe { SHEET_MANAGER_ADDR };
     let sheet_manager = unsafe { &mut *(sheet_manager_addr as *mut SheetManager) };
     let sheet = sheet_manager.sheets_data[console.sheet_index];
@@ -866,8 +854,5 @@ pub extern "C" fn exception_handler(message: &[u8], esp: *const usize) -> usize 
         unsafe { *((esp as usize + 11) as *const usize) }
     );
     console.newline();
-    let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
-    let task_index = task_manager.now_index();
-    let task = &task_manager.tasks_data[task_index];
     return unsafe { &(task.tss.esp0) } as *const i32 as usize;
 }
