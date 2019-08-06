@@ -87,6 +87,21 @@ pub fn init_palette() {
         asm::out8(0x03c9, COLOR_PALETTE[i][1] / 4);
         asm::out8(0x03c9, COLOR_PALETTE[i][2] / 4);
     }
+    let mut color_palette2: [u8; 216 * 3] = [0; 216 * 3];
+    for b in 0..6 {
+        for g in 0..6 {
+            for r in 0..6 {
+                color_palette2[(r + g * 6 + b * 36) * 3 + 0] = r as u8 * 51;
+                color_palette2[(r + g * 6 + b * 36) * 3 + 1] = g as u8 * 51;
+                color_palette2[(r + g * 6 + b * 36) * 3 + 2] = b as u8 * 51;
+            }
+        }
+    }
+    for i in 0..216 {
+        asm::out8(0x03c9, color_palette2[i * 3] / 4);
+        asm::out8(0x03c9, color_palette2[i * 3 + 1] / 4);
+        asm::out8(0x03c9, color_palette2[i * 3 + 2] / 4);
+    }
     asm::store_eflags(eflags);
 }
 
