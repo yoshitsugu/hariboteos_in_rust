@@ -1,6 +1,6 @@
 use core::str::from_utf8;
 
-use crate::asm::{cli, sti};
+use crate::asm::{cli, in8, out8, sti};
 use crate::descriptor_table::{SegmentDescriptor, ADR_GDT, AR_CODE32_ER, AR_DATA32_RW};
 use crate::fifo::Fifo;
 use crate::file::*;
@@ -245,6 +245,18 @@ pub extern "C" fn hrb_api(
         TIMER_MANAGER.lock().set_time(ebx as usize, eax as u32);
     } else if edx == 19 {
         TIMER_MANAGER.lock().free(ebx as usize);
+    } else if edx == 20 {
+        if eax == 0 {
+            let i = in8(0x61);
+            out8(0x61, i & 0x0d);
+        } else {
+            let i = 1193180000 / eax;
+            out8(0x43, 0xb6);
+            out8(0x42, i as u8);
+            out8(0x42, (i >> 8) as u8);
+            let i = in8(0x61);
+            out8(0x61, (i | 0x03) & 0x0f);
+        }
     }
     0
 }

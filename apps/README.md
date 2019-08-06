@@ -33,7 +33,14 @@ name = "(app_name)"
 crate-type = ["staticlib"]
 ```
 
-3. Makefileに追加
+3. `cargo clean` しておく
+
+```bash
+$ cd apps/xxx
+$ cargo clean
+```
+
+4. Makefileに追加
 
 ```Makefile
 # xxx.hrbの部分を追加

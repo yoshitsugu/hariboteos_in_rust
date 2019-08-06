@@ -10,18 +10,15 @@ default:
 $(OUTPUT_DIR)/%.bin: $(ASM_DIR)/%.asm Makefile $(OUTPUT_DIR_KEEP)
 	nasm  $< -o $@
 
-# $(OUTPUT_DIR)/%.hrb: $(ASM_DIR)/%.asm Makefile $(OUTPUT_DIR_KEEP)
-# 	nasm -f elf $< -o $(OUTPUT_DIR)/$*.o
-# 	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $(OUTPUT_DIR)/$*.o -o $@
-
 $(OUTPUT_DIR)/haribote.sys : $(OUTPUT_DIR)/asmhead.bin $(OUTPUT_DIR)/kernel.bin
 	cat $^ > $@
 
-$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/lines.hrb $(OUTPUT_DIR)/timer.hrb Makefile
+$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/lines.hrb $(OUTPUT_DIR)/timer.hrb $(OUTPUT_DIR)/beepdown.hrb Makefile
 	mformat -f 1440 -C -B $< -i $@ ::
 	mcopy $(OUTPUT_DIR)/haribote.sys -i $@ ::
 	mcopy $(OUTPUT_DIR)/lines.hrb -i $@ ::
 	mcopy $(OUTPUT_DIR)/timer.hrb -i $@ ::
+	mcopy $(OUTPUT_DIR)/beepdown.hrb -i $@ ::
 
 asm :
 	make $(OUTPUT_DIR)/ipl.bin 
