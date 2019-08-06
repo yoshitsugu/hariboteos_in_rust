@@ -9,7 +9,7 @@ use crate::memory::{MemMan, MEMMAN_ADDR};
 use crate::mt::{TaskManager, TASK_MANAGER_ADDR};
 use crate::sheet::{SheetFlag, SheetManager, MAX_SHEETS};
 use crate::timer::TIMER_MANAGER;
-use crate::vga::{boxfill, draw_line, make_window, to_color, Color};
+use crate::vga::{boxfill, draw_line, make_window, to_color, Color, SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::{write_with_bg, SHEET_MANAGER_ADDR};
 
 pub const CONSOLE_CURSOR_ON: u32 = 2;
@@ -93,8 +93,12 @@ pub extern "C" fn hrb_api(
             from_utf8(&title[0..i]).unwrap(),
             false,
         );
-        sheet_manager.slide(sheet_index, 100, 50);
-        sheet_manager.updown(sheet_index, Some(3));
+        sheet_manager.slide(
+            sheet_index,
+            (*SCREEN_WIDTH as i32 - esi) / 2,
+            (*SCREEN_HEIGHT as i32 - edi) / 2,
+        );
+        sheet_manager.updown(sheet_index, sheet_manager.z_max);
         let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut i32) };
         *reg_eax = sheet_index as i32;
     } else if edx == 6 {
