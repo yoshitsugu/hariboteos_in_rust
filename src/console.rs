@@ -644,9 +644,6 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
     let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
     let task_index = task_manager.now_index();
 
-    let fifo = Fifo::new(128, Some(task_index));
-    let fifo_addr = &fifo as *const Fifo as usize;
-
     // コマンドを保持するための配列
     let mut cmdline: [u8; MAX_CMD] = [0; MAX_CMD];
 
@@ -654,11 +651,13 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
     let sheet_manager = unsafe { &mut *(sheet_manager_addr as *mut SheetManager) };
 
     let mut console = Console::new(sheet_index, sheet_manager_addr);
+    let fifo_addr: usize;
     {
         let mut task = &mut task_manager.tasks_data[task_index];
-        task.fifo_addr = fifo_addr;
         task.console_addr = &console as *const Console as usize;
+        fifo_addr = task.fifo_addr;
     }
+    let fifo = unsafe { &*(fifo_addr as *const Fifo) };
 
     console.timer_index = TIMER_MANAGER.lock().alloc().unwrap();
     TIMER_MANAGER

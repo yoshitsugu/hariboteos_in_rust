@@ -31,9 +31,8 @@ use memory::{MemMan, MEMMAN_ADDR};
 use mouse::{Mouse, MouseDec, MOUSE_CURSOR_HEIGHT, MOUSE_CURSOR_WIDTH};
 use mt::{TaskManager, TASK_MANAGER_ADDR};
 use sheet::{SheetFlag, SheetManager};
-use timer::TIMER_MANAGER;
 use vga::{
-    boxfill, init_palette, init_screen, make_textbox, make_window, to_color, Color, ScreenWriter,
+    init_palette, init_screen, make_textbox, make_window, to_color, Color, ScreenWriter,
     SCREEN_HEIGHT, SCREEN_WIDTH,
 };
 use window::*;
@@ -63,10 +62,6 @@ pub extern "C" fn hrmain() {
     memman.free(0x00400000, 2).unwrap();
     memman.free(0x00400000, memtotal - 0x00400000).unwrap();
 
-    let timer_index3 = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER.lock().init_timer(timer_index3, fifo_addr, 1);
-    TIMER_MANAGER.lock().set_time(timer_index3, 50);
-
     let task_manager_addr = memman
         .alloc_4k(core::mem::size_of::<TaskManager>() as u32)
         .unwrap();
@@ -91,16 +86,13 @@ pub extern "C" fn hrmain() {
         SHEET_MANAGER_ADDR = sheet_manager_addr as usize;
     }
     let shi_mouse = sheet_manager.alloc().unwrap();
-    let shi_win = sheet_manager.alloc().unwrap();
     let scrnx = *SCREEN_WIDTH as i32;
     let scrny = *SCREEN_HEIGHT as i32;
     let buf_bg_addr = memman.alloc_4k((scrnx * scrny) as u32).unwrap() as usize;
-    let buf_win_addr = memman.alloc_4k((144 * 52) as u32).unwrap() as usize;
     let buf_mouse = [0u8; MOUSE_CURSOR_WIDTH * MOUSE_CURSOR_HEIGHT];
     let buf_mouse_addr =
         &buf_mouse as *const [u8; MOUSE_CURSOR_HEIGHT * MOUSE_CURSOR_WIDTH] as usize;
     sheet_manager.set_buf(shi_bg, buf_bg_addr, scrnx, scrny, None);
-    sheet_manager.set_buf(shi_win, buf_win_addr, 144, 52, None);
     sheet_manager.set_buf(
         shi_mouse,
         buf_mouse_addr,
@@ -116,9 +108,6 @@ pub extern "C" fn hrmain() {
     let mouse = Mouse::new(buf_mouse_addr);
     mouse.render();
 
-    make_window(buf_win_addr, 144, 52, "task_a", true);
-    make_textbox(buf_win_addr, 144, 8, 28, 128, 16, Color::White);
-
     task_manager.run(task_a_index, 1, 2);
 
     const CONSOLE_WIDTH: usize = 256;
@@ -127,6 +116,7 @@ pub extern "C" fn hrmain() {
     let mut console_sheets: [usize; CONSOLE_COUNT] = [0; CONSOLE_COUNT];
     let mut console_bufs: [usize; CONSOLE_COUNT] = [0; CONSOLE_COUNT];
     let mut console_tasks: [usize; CONSOLE_COUNT] = [0; CONSOLE_COUNT];
+    let mut console_fifos: [usize; CONSOLE_COUNT] = [0; CONSOLE_COUNT];
 
     for ci in 0..CONSOLE_COUNT {
         console_sheets[ci] = sheet_manager.alloc().unwrap();
@@ -158,6 +148,12 @@ pub extern "C" fn hrmain() {
         );
         console_tasks[ci] = task_manager.alloc().unwrap();
         let mut console_task_mut = &mut task_manager.tasks_data[console_tasks[ci]];
+
+        console_fifos[ci] = memman.alloc_4k(128 * 4).unwrap() as usize;
+        let console_fifo = unsafe { &mut *(console_fifos[ci] as *mut Fifo)};
+        *console_fifo = Fifo::new(128, Some(console_tasks[ci]));
+        console_task_mut.fifo_addr = console_fifos[ci];
+
         let console_esp = memman.alloc_4k(64 * 1024).unwrap() + 64 * 1024 - 12;
         console_task_mut.tss.esp = console_esp as i32;
         console_task_mut.tss.eip = console_task as i32;
@@ -167,6 +163,7 @@ pub extern "C" fn hrmain() {
         console_task_mut.tss.ds = 1 * 8;
         console_task_mut.tss.fs = 1 * 8;
         console_task_mut.tss.gs = 1 * 8;
+
         let ptr = unsafe { &mut *((console_task_mut.tss.esp + 4) as *mut usize) };
         *ptr = console_sheets[ci];
         let ptr = unsafe { &mut *((console_task_mut.tss.esp + 8) as *mut usize) };
@@ -182,24 +179,13 @@ pub extern "C" fn hrmain() {
     sheet_manager.slide(shi_mouse, mx, my);
     sheet_manager.slide(console_sheets[0], 56, 6);
     sheet_manager.slide(console_sheets[1], 8, 2);
-    sheet_manager.slide(shi_win, 64, 56);
     sheet_manager.updown(shi_bg, Some(0));
-    sheet_manager.updown(console_sheets[0], Some(1));
-    sheet_manager.updown(console_sheets[1], Some(2));
-    sheet_manager.updown(shi_win, Some(3));
-    sheet_manager.updown(shi_mouse, Some(4));
+    sheet_manager.updown(console_sheets[1], Some(1));
+    sheet_manager.updown(console_sheets[0], Some(2));
+    sheet_manager.updown(shi_mouse, Some(3));
 
-    // カーソル
-    let min_cursor_x = 8 as isize;
-    let max_cursor_x = 144;
-    let mut cursor_x = min_cursor_x;
-    let mut cursor_c = Color::White;
-
-    let mut active_window: usize = shi_win;
-    {
-        let mut sheet_win = &mut sheet_manager.sheets_data[shi_win];
-        sheet_win.cursor = true;
-    }
+    let mut active_window: usize = console_sheets[0];
+    window_on(sheet_manager, task_manager, active_window);
 
     // シフトキー
     let mut key_shift = (false, false);
@@ -232,13 +218,7 @@ pub extern "C" fn hrmain() {
                 // ウィンドウが閉じられた
                 if let Some(zmax) = sheet_manager.z_max {
                     active_window = sheet_manager.sheets[zmax - 1];
-                    cursor_c = window_on(
-                        sheet_manager,
-                        task_manager,
-                        active_window,
-                        shi_win,
-                        cursor_c,
-                    );
+                    window_on(sheet_manager, task_manager, active_window);
                 }
             }
             if KEYBOARD_OFFSET <= i && i <= 511 {
@@ -260,81 +240,31 @@ pub extern "C" fn hrmain() {
                     }
                 }
                 if chr != 0 {
-                    if active_window == shi_win {
-                        if cursor_x < max_cursor_x {
-                            write_with_bg!(
-                                sheet_manager,
-                                shi_win,
-                                144,
-                                52,
-                                cursor_x,
-                                28,
-                                Color::Black,
-                                Color::White,
-                                1,
-                                "{}",
-                                chr as char,
-                            );
-                            cursor_x += 8;
-                        }
-                    } else {
-                        let ctask = task_manager.tasks_data[active_sheet.task_index];
-                        let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
-                        fifo.put(chr as u32 + KEYBOARD_OFFSET).unwrap();
-                    }
+                    let ctask = task_manager.tasks_data[active_sheet.task_index];
+                    let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
+                    fifo.put(chr as u32 + KEYBOARD_OFFSET).unwrap();
                 }
                 // Enterキー
                 if key == 0x1c {
-                    if active_window != shi_win {
-                        let ctask = task_manager.tasks_data[active_sheet.task_index];
-                        let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
-                        fifo.put(CONSOLE_ENTER + KEYBOARD_OFFSET).unwrap();
-                    }
+                    let ctask = task_manager.tasks_data[active_sheet.task_index];
+                    let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
+                    fifo.put(CONSOLE_ENTER + KEYBOARD_OFFSET).unwrap();
                 }
                 // バックスペース
                 if key == 0x0e {
-                    if active_window == shi_win && cursor_x > min_cursor_x {
-                        write_with_bg!(
-                            sheet_manager,
-                            shi_win,
-                            144,
-                            52,
-                            cursor_x,
-                            28,
-                            Color::Black,
-                            Color::White,
-                            1,
-                            " "
-                        );
-                        cursor_x -= 8;
-                    } else {
-                        let ctask = task_manager.tasks_data[active_sheet.task_index];
-                        let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
-                        fifo.put(CONSOLE_BACKSPACE + KEYBOARD_OFFSET).unwrap();
-                    }
+                    let ctask = task_manager.tasks_data[active_sheet.task_index];
+                    let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
+                    fifo.put(CONSOLE_BACKSPACE + KEYBOARD_OFFSET).unwrap();
                 }
                 // タブ
                 if key == 0x0f {
-                    cursor_c = window_off(
-                        sheet_manager,
-                        task_manager,
-                        active_window,
-                        shi_win,
-                        cursor_c,
-                        cursor_x as i32,
-                    );
+                    window_off(sheet_manager, task_manager, active_window);
                     let mut j = active_sheet.z.unwrap() - 1;
                     if j == 0 && sheet_manager.z_max.is_some() && sheet_manager.z_max.unwrap() > 0 {
                         j = sheet_manager.z_max.unwrap() - 1;
                     }
                     active_window = sheet_manager.sheets[j];
-                    cursor_c = window_on(
-                        sheet_manager,
-                        task_manager,
-                        active_window,
-                        shi_win,
-                        cursor_c,
-                    );
+                    window_on(sheet_manager, task_manager, active_window);
                     sheet_manager.updown(
                         active_window,
                         if let Some(zmax) = sheet_manager.z_max {
@@ -417,8 +347,6 @@ pub extern "C" fn hrmain() {
                     wait_kbc_sendready();
                     out8(PORT_KEYDAT, keycmd_wait as u8);
                 }
-                boxfill(buf_win_addr, 144, cursor_c, cursor_x, 28, cursor_x + 8, 43);
-                sheet_manager.refresh(shi_win, cursor_x as i32, 28, cursor_x as i32 + 8, 44)
             } else if 512 <= i && i <= 767 {
                 if mouse_dec.decode((i - 512) as u8).is_some() {
                     let (new_x, new_y) = sheet_manager.get_new_point(
@@ -456,21 +384,16 @@ pub extern "C" fn hrmain() {
                                         if to_color(color) != sheet.transparent {
                                             sheet_manager.updown(target_sheet_index, Some(z - 1));
                                             if active_window != target_sheet_index {
-                                                cursor_c = window_off(
+                                                window_off(
                                                     sheet_manager,
                                                     task_manager,
                                                     active_window,
-                                                    shi_win,
-                                                    cursor_c,
-                                                    cursor_x as i32,
                                                 );
                                                 active_window = target_sheet_index;
-                                                cursor_c = window_on(
+                                                window_on(
                                                     sheet_manager,
                                                     task_manager,
                                                     active_window,
-                                                    shi_win,
-                                                    cursor_c,
                                                 );
                                             }
                                             if 3 <= x && x < sheet.width - 3 && 3 <= y && y < 21 {
@@ -522,24 +445,6 @@ pub extern "C" fn hrmain() {
                         // 左クリックを押してなかったらウィンドウ移動モードからもどす
                         moving = false;
                     }
-                }
-            } else {
-                let sheet_win = sheet_manager.sheets_data[shi_win];
-                if i != 0 {
-                    TIMER_MANAGER.lock().init_timer(timer_index3, fifo_addr, 0);
-                    cursor_c = if sheet_win.cursor {
-                        Color::Black
-                    } else {
-                        Color::White
-                    };
-                } else {
-                    TIMER_MANAGER.lock().init_timer(timer_index3, fifo_addr, 1);
-                    cursor_c = Color::White;
-                }
-                TIMER_MANAGER.lock().set_time(timer_index3, 50);
-                if sheet_win.cursor {
-                    boxfill(buf_win_addr, 144, cursor_c, cursor_x, 28, cursor_x + 8, 43);
-                    sheet_manager.refresh(shi_win, cursor_x as i32, 28, cursor_x as i32 + 8, 44)
                 }
             }
         } else {
