@@ -201,6 +201,10 @@ pub extern "C" fn hrmain() {
     let mut mouse_move_x = 0;
     let mut mouse_move_y = 0;
     let mut tmp_sheet_x = 0;
+    let mut new_mx = -1;
+    let mut new_my = 0;
+    let mut new_wx = 0x7fffffff;
+    let mut new_wy = 0;
     let mut target_sheet_index = 0;
 
     loop {
@@ -355,19 +359,16 @@ pub extern "C" fn hrmain() {
                         mouse_dec.x.get(),
                         mouse_dec.y.get(),
                     );
-                    sheet_manager.slide(shi_mouse, new_x, new_y);
+                    new_mx = new_x;
+                    new_my = new_y;
                     // 左クリックをおしていた場合
                     if (mouse_dec.btn.get() & 0x01) != 0 {
                         if moving {
                             let x = new_x - mouse_move_x;
                             let y = new_y - mouse_move_y;
                             let sheet = sheet_manager.sheets_data[target_sheet_index];
-                            sheet_manager.slide(
-                                target_sheet_index,
-                                (x + tmp_sheet_x + 2) & !3,
-                                y + sheet.y,
-                            );
-                            // mouse_move_x = new_x;
+                            new_wx = (x + tmp_sheet_x + 2) & !3;
+                            new_wy = new_wy + y;
                             mouse_move_y = new_y;
                         } else {
                             // Sheetの順番を入れ替え
@@ -407,6 +408,7 @@ pub extern "C" fn hrmain() {
                                                 mouse_move_x = new_x;
                                                 mouse_move_y = new_y;
                                                 tmp_sheet_x = sheet.x;
+                                                new_wy = sheet.y;
                                             }
                                             if sheet.width - 21 <= x
                                                 && x < sheet.width - 5
@@ -450,12 +452,26 @@ pub extern "C" fn hrmain() {
                     } else {
                         // 左クリックを押してなかったらウィンドウ移動モードからもどす
                         moving = false;
+                        if new_wx != 0x7fffffff {
+                            sheet_manager.slide(target_sheet_index, new_wx, new_wy);
+                            new_wx = 0x7fffffff;
+                        }
                     }
                 }
             }
         } else {
-            task_manager.sleep(task_a_index);
-            sti();
+            if new_mx >= 0 {
+                sti();
+                sheet_manager.slide(shi_mouse, new_mx, new_my);
+                new_mx = -1;
+            } else if new_wx != 0x7fffffff {
+                sti();
+                sheet_manager.slide(target_sheet_index, new_wx, new_wy);
+                new_wx = 0x7fffffff;
+            } else {
+                task_manager.sleep(task_a_index);
+                sti();
+            }
         }
     }
 }
