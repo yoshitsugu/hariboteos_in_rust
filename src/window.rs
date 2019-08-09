@@ -2,7 +2,7 @@ use crate::console::{CONSOLE_CURSOR_OFF, CONSOLE_CURSOR_ON};
 use crate::fifo::Fifo;
 use crate::mt::TaskManager;
 use crate::sheet::SheetManager;
-use crate::vga::{toggle_title_color};
+use crate::vga::toggle_title_color;
 
 pub fn window_on(sheet_manager: &mut SheetManager, task_manager: &TaskManager, sheet_index: usize) {
     let sheet = sheet_manager.sheets_data[sheet_index];

@@ -150,7 +150,7 @@ pub extern "C" fn hrmain() {
         let mut console_task_mut = &mut task_manager.tasks_data[console_tasks[ci]];
 
         console_fifos[ci] = memman.alloc_4k(128 * 4).unwrap() as usize;
-        let console_fifo = unsafe { &mut *(console_fifos[ci] as *mut Fifo)};
+        let console_fifo = unsafe { &mut *(console_fifos[ci] as *mut Fifo) };
         *console_fifo = Fifo::new(128, Some(console_tasks[ci]));
         console_task_mut.fifo_addr = console_fifos[ci];
 
@@ -200,6 +200,7 @@ pub extern "C" fn hrmain() {
     let mut moving = false;
     let mut mouse_move_x = 0;
     let mut mouse_move_y = 0;
+    let mut tmp_sheet_x = 0;
     let mut target_sheet_index = 0;
 
     loop {
@@ -361,8 +362,12 @@ pub extern "C" fn hrmain() {
                             let x = new_x - mouse_move_x;
                             let y = new_y - mouse_move_y;
                             let sheet = sheet_manager.sheets_data[target_sheet_index];
-                            sheet_manager.slide(target_sheet_index, x + sheet.x, y + sheet.y);
-                            mouse_move_x = new_x;
+                            sheet_manager.slide(
+                                target_sheet_index,
+                                (x + tmp_sheet_x + 2) & !3,
+                                y + sheet.y,
+                            );
+                            // mouse_move_x = new_x;
                             mouse_move_y = new_y;
                         } else {
                             // Sheetの順番を入れ替え
@@ -400,7 +405,8 @@ pub extern "C" fn hrmain() {
                                                 // ウィンドウ移動モードへ
                                                 moving = true;
                                                 mouse_move_x = new_x;
-                                                mouse_move_y = new_y
+                                                mouse_move_y = new_y;
+                                                tmp_sheet_x = sheet.x;
                                             }
                                             if sheet.width - 21 <= x
                                                 && x < sheet.width - 5

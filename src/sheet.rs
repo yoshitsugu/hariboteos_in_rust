@@ -119,18 +119,52 @@ impl SheetManager {
             } else {
                 0
             } as usize;
-            for by in by0..by1 {
-                let vy = (sheet.y + by as i32) as usize;
-                for bx in bx0..bx1 {
-                    let vx = (sheet.x + bx as i32) as usize;
-                    let width = sheet.width as usize;
-                    let c = unsafe { *((sheet.buf_addr + by * width + bx) as *const Color) };
-                    if Some(c) != sheet.transparent {
-                        let ptr = unsafe {
-                            &mut *((self.map_addr as *mut u8)
-                                .offset(vy as isize * *SCREEN_WIDTH as isize + vx as isize))
-                        };
-                        *ptr = si as u8;
+            if let Some(t) = sheet.transparent {
+                for by in by0..by1 {
+                    let vy = (sheet.y + by as i32) as usize;
+                    for bx in bx0..bx1 {
+                        let vx = (sheet.x + bx as i32) as usize;
+                        let width = sheet.width as usize;
+                        let c = unsafe { *((sheet.buf_addr + by * width + bx) as *const Color) };
+                        if c != t {
+                            let ptr = unsafe {
+                                &mut *((self.map_addr as *mut u8)
+                                    .offset(vy as isize * *SCREEN_WIDTH as isize + vx as isize))
+                            };
+                            *ptr = si as u8;
+                        }
+                    }
+                }
+            } else {
+                if (sheet.x & 3) == 0 && (x0 & 3) == 0 && (x1 & 3) == 0 {
+                    // 4バイトずつ処理
+                    let bx1: isize = (bx1 as isize - bx0 as isize) / 4;
+                    let si4 = si | si << 8 | si << 16 | si << 24;
+                    for by in by0..by1 {
+                        let vy = (sheet.y + by as i32) as usize;
+                        let vx = (sheet.x + bx0 as i32) as usize;
+                        for bx in 0..bx1 {
+                            let ptr = unsafe {
+                                &mut *((self.map_addr as isize
+                                    + vy as isize * *SCREEN_WIDTH as isize
+                                    + vx as isize
+                                    + bx as isize * 4)
+                                    as usize as *mut u32)
+                            };
+                            *ptr = si4 as u32;
+                        }
+                    }
+                } else {
+                    for by in by0..by1 {
+                        let vy = (sheet.y + by as i32) as usize;
+                        for bx in bx0..bx1 {
+                            let vx = (sheet.x + bx as i32) as usize;
+                            let ptr = unsafe {
+                                &mut *((self.map_addr as *mut u8)
+                                    .offset(vy as isize * *SCREEN_WIDTH as isize + vx as isize))
+                            };
+                            *ptr = si as u8;
+                        }
                     }
                 }
             }
@@ -149,6 +183,7 @@ impl SheetManager {
         for h in (z0 as usize)..=(z1 as usize) {
             let si = self.sheets[h as usize];
             let sheet = &self.sheets_data[si];
+            let width = sheet.width as usize;
             let bx0 = if x0 > sheet.x { x0 - sheet.x } else { 0 } as usize;
             let by0 = if y0 > sheet.y { y0 - sheet.y } else { 0 } as usize;
             let bx1 = if x1 > sheet.x {
@@ -161,23 +196,107 @@ impl SheetManager {
             } else {
                 0
             } as usize;
-            for by in by0..by1 {
-                let vy = (sheet.y + by as i32) as usize;
-                for bx in bx0..bx1 {
-                    let vx = (sheet.x + bx as i32) as usize;
-                    let width = sheet.width as usize;
-                    let map_si = unsafe {
-                        *((self.map_addr as isize
-                            + vy as isize * *SCREEN_WIDTH as isize
-                            + vx as isize) as *const u8)
-                    };
-                    if si as u8 == map_si {
-                        let c = unsafe { *((sheet.buf_addr + by * width + bx) as *const Color) };
-                        let ptr = unsafe {
-                            &mut *((*VRAM_ADDR as *mut u8)
-                                .offset(vy as isize * *SCREEN_WIDTH as isize + vx as isize))
+            if (sheet.x & 3) == 0 {
+                // 4バイトずつ処理
+                let i = (bx0 + 3) / 4;
+                let i1 = max((bx1 / 4) as isize - i as isize, 0) as usize;
+                let si4 = si | si << 8 | si << 16 | si << 24;
+                for by in by0..by1 {
+                    let vy = (sheet.y + by as i32) as usize;
+                    let mut bx = bx0;
+                    while bx < bx1 && (bx & 3) != 0 {
+                        let vx = (sheet.x + bx as i32) as usize;
+                        let map_si = unsafe {
+                            *((self.map_addr as isize
+                                + vy as isize * *SCREEN_WIDTH as isize
+                                + vx as isize) as *const u8)
                         };
-                        *ptr = c as u8;
+                        if si as u8 == map_si {
+                            let c =
+                                unsafe { *((sheet.buf_addr + by * width + bx) as *const Color) };
+                            let ptr = unsafe {
+                                &mut *((*VRAM_ADDR as *mut u8)
+                                    .offset(vy as isize * *SCREEN_WIDTH as isize + vx as isize))
+                            };
+                            *ptr = c as u8;
+                        }
+                        bx += 1;
+                    }
+                    let vx = (sheet.x + bx as i32) as usize;
+                    let p_base =
+                        self.map_addr as isize + vy as isize * *SCREEN_WIDTH as isize + vx as isize;
+                    let q_base =
+                        *VRAM_ADDR as isize + vy as isize * *SCREEN_WIDTH as isize + vx as isize;
+                    let r_base =
+                        sheet.buf_addr as isize + by as isize * sheet.width as isize + bx as isize;
+                    for i in 0..i1 {
+                        let p = unsafe { &mut *((p_base + i as isize * 4) as *mut usize) };
+                        let q = unsafe { &mut *((q_base + i as isize * 4) as *mut usize) };
+                        let r = unsafe { &mut *((r_base + i as isize * 4) as *mut usize) };
+                        if *p == si4 {
+                            *q = *r;
+                        } else {
+                            let bx2 = bx + i as usize * 4;
+                            let vx = sheet.x + bx2 as i32;
+                            let p_base = self.map_addr as isize
+                                + vy as isize * *SCREEN_WIDTH as isize
+                                + vx as isize;
+                            let q_base = *VRAM_ADDR as isize
+                                + vy as isize * *SCREEN_WIDTH as isize
+                                + vx as isize;
+                            let r_base = sheet.buf_addr as isize
+                                + by as isize * sheet.width as isize
+                                + bx2 as isize;
+                            for offset in 0..(4 as isize) {
+                                let p = unsafe { &mut *((p_base + offset) as *mut u8) };
+                                let q = unsafe { &mut *((q_base + offset) as *mut u8) };
+                                let r = unsafe { &mut *((r_base + offset) as *mut u8) };
+                                if *p == si as u8 {
+                                    *q = *r
+                                }
+                            }
+                        }
+                    }
+                    bx += i1 * 4;
+                    while bx < bx1 {
+                        let vx = (sheet.x + bx as i32) as usize;
+                        let map_si = unsafe {
+                            *((self.map_addr as isize
+                                + vy as isize * *SCREEN_WIDTH as isize
+                                + vx as isize) as *const u8)
+                        };
+                        if si as u8 == map_si {
+                            let c =
+                                unsafe { *((sheet.buf_addr + by * width + bx) as *const Color) };
+                            let ptr = unsafe {
+                                &mut *((*VRAM_ADDR as *mut u8)
+                                    .offset(vy as isize * *SCREEN_WIDTH as isize + vx as isize))
+                            };
+                            *ptr = c as u8;
+                        }
+                        bx += 1;
+                    }
+                }
+            } else {
+                for by in by0..by1 {
+                    let vy = (sheet.y + by as i32) as usize;
+                    for bx in bx0..bx1 {
+                        let vx = (sheet.x + bx as i32) as usize;
+                        let width = sheet.width as usize;
+                        let map_si = unsafe {
+                            *((self.map_addr as isize
+                                + vy as isize * *SCREEN_WIDTH as isize
+                                + vx as isize) as *const u8)
+                        };
+                        if si as u8 == map_si {
+                            let c =
+                                unsafe { *((sheet.buf_addr + by * width + bx) as *const Color) };
+                            let ptr = unsafe {
+                                &mut *((*VRAM_ADDR as *mut u8)
+                                    .offset(vy as isize * *SCREEN_WIDTH as isize + vx as isize))
+                            };
+                            *ptr = c as u8;
+                        }
                     }
                 }
             }

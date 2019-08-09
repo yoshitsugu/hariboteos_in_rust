@@ -90,7 +90,7 @@ pub extern "C" fn hrb_api(
         );
         sheet_manager.slide(
             sheet_index,
-            (*SCREEN_WIDTH as i32 - esi) / 2,
+            ((*SCREEN_WIDTH as i32 - esi) / 2) & !3,
             (*SCREEN_HEIGHT as i32 - edi) / 2,
         );
         sheet_manager.updown(sheet_index, sheet_manager.z_max);
