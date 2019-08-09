@@ -10,7 +10,7 @@ use crate::mt::{TaskManager, TASK_MANAGER_ADDR};
 use crate::sheet::{SheetFlag, SheetManager, MAX_SHEETS};
 use crate::timer::TIMER_MANAGER;
 use crate::vga::{boxfill, draw_line, make_window, to_color, Color, SCREEN_HEIGHT, SCREEN_WIDTH};
-use crate::{write_with_bg, SHEET_MANAGER_ADDR};
+use crate::{write_with_bg, EXIT_OFFSET, SHEET_MANAGER_ADDR, TASK_A_FIFO_ADDR};
 
 pub const CONSOLE_CURSOR_ON: u32 = 2;
 pub const CONSOLE_CURSOR_OFF: u32 = 3;
@@ -364,6 +364,8 @@ impl Console {
             self.cmd_ls();
         } else if cmd_str == "cat" {
             self.cmd_cat(cmdline_strs, fat);
+        } else if cmd_str == "exit" {
+            self.cmd_exit(fat);
         } else {
             self.cmd_app(&cmd, fat);
         }
@@ -498,6 +500,24 @@ impl Console {
         );
         self.newline();
         self.newline();
+    }
+
+    pub fn cmd_exit(&mut self, fat: &[u32; MAX_FAT]) {
+        let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
+        let task_a_fifo_addr = unsafe { *(TASK_A_FIFO_ADDR as *const usize) };
+        let task_a_fifo = unsafe { &mut *(task_a_fifo_addr as *mut Fifo) };
+        TIMER_MANAGER.lock().cancel(self.timer_index);
+        memman.free_4k(fat.as_ptr() as u32, 4 * 2880).unwrap();
+        cli();
+        task_a_fifo
+            .put(self.sheet_index as u32 + EXIT_OFFSET as u32)
+            .unwrap();
+        sti();
+        let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+        let task_index = task_manager.now_index();
+        loop {
+            task_manager.sleep(task_index);
+        }
     }
 
     pub fn cmd_app<'a>(&mut self, filename: &'a [u8], fat: &[u32; MAX_FAT]) {

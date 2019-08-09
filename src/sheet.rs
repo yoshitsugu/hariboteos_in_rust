@@ -1,5 +1,7 @@
 use core::cmp::{max, min};
 
+use crate::memory::{MemMan, MEMMAN_ADDR};
+use crate::mt::{TaskManager, TASK_MANAGER_ADDR};
 use crate::vga::{Color, SCREEN_HEIGHT, SCREEN_WIDTH, VRAM_ADDR};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -483,5 +485,14 @@ impl SheetManager {
         }
         let mut sheet = &mut self.sheets_data[sheet_index];
         sheet.flag = SheetFlag::AVAILABLE;
+    }
+
+    pub fn close(&mut self, sheet_index: usize) {
+        let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
+        let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+        let sheet = self.sheets_data[sheet_index];
+        memman.free_4k(sheet.buf_addr as u32, 256 * 165).unwrap();
+        self.free(sheet_index);
+        task_manager.close_task(sheet.task_index);
     }
 }

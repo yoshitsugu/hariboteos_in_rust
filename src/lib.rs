@@ -40,7 +40,8 @@ use window::*;
 pub static mut SHEET_MANAGER_ADDR: usize = 0;
 const CONSOLE_WIDTH: usize = 256;
 const CONSOLE_HEIGHT: usize = 165;
-const CONSOLE_COUNT: usize = 2;
+pub const TASK_A_FIFO_ADDR: usize = 0xfec;
+pub const EXIT_OFFSET: usize = 768;
 
 #[no_mangle]
 #[start]
@@ -52,6 +53,8 @@ pub extern "C" fn hrmain() {
 
     let mut fifo = &mut Fifo::new(128, None);
     let fifo_addr = fifo as *const Fifo as usize;
+    let task_a_fifo_addr_ptr = unsafe { &mut *(TASK_A_FIFO_ADDR as *mut usize) };
+    *task_a_fifo_addr_ptr = fifo_addr;
 
     keyboard::init_keyboard(fifo_addr);
     timer::init_pit();
@@ -155,13 +158,19 @@ pub extern "C" fn hrmain() {
             let i = fifo.get().unwrap();
             sti();
             let active_sheet = sheet_manager.sheets_data[active_window];
-            if active_sheet.flag == SheetFlag::AVAILABLE {
+            if active_window != 0 && active_sheet.flag == SheetFlag::AVAILABLE {
                 // ウィンドウが閉じられた
                 if let Some(zmax) = sheet_manager.z_max {
-                    active_window = sheet_manager.sheets[zmax - 1];
-                    window_on(sheet_manager, task_manager, active_window);
+                    // もうマウスと背景しかない
+                    if zmax == 1 {
+                        active_window = 0;
+                    } else {
+                        active_window = sheet_manager.sheets[zmax - 1];
+                        window_on(sheet_manager, task_manager, active_window);
+                    }
                 }
             }
+
             if KEYBOARD_OFFSET <= i && i <= 511 {
                 let key = i - KEYBOARD_OFFSET;
                 let mut chr = 0 as u8;
@@ -180,7 +189,7 @@ pub extern "C" fn hrmain() {
                         chr += 0x20;
                     }
                 }
-                if chr != 0 {
+                if chr != 0 && active_window != 0 {
                     let ctask = task_manager.tasks_data[active_sheet.task_index];
                     let fifo = unsafe { &*(ctask.fifo_addr as *const Fifo) };
                     fifo.put(chr as u32 + KEYBOARD_OFFSET).unwrap();
@@ -198,7 +207,7 @@ pub extern "C" fn hrmain() {
                     fifo.put(CONSOLE_BACKSPACE + KEYBOARD_OFFSET).unwrap();
                 }
                 // タブ
-                if key == 0x0f {
+                if key == 0x0f && active_window != 0 {
                     window_off(sheet_manager, task_manager, active_window);
                     let mut j = active_sheet.z.unwrap() - 1;
                     if j == 0 && sheet_manager.z_max.is_some() && sheet_manager.z_max.unwrap() > 0 {
@@ -254,10 +263,10 @@ pub extern "C" fn hrmain() {
                     keycmd.put(lock_keys.as_bytes() as u32).unwrap();
                 }
                 // Shift + F2 でコンソール起動
-                if key == 0x3c
-                    && (key_shift.0 == true || key_shift.1 == true)
-                {
-                    window_off(sheet_manager, task_manager, active_window);
+                if key == 0x3c && (key_shift.0 == true || key_shift.1 == true) {
+                    if active_window != 0 {
+                        window_off(sheet_manager, task_manager, active_window);
+                    }
                     active_window = open_console(sheet_manager, task_manager, memtotal);
                     sheet_manager.slide(active_window, 32, 4);
                     sheet_manager.updown(active_window, sheet_manager.z_max);
@@ -270,6 +279,7 @@ pub extern "C" fn hrmain() {
                     if key == 0x3b
                         && (key_shift.0 == true || key_shift.1 == true)
                         && console_task_mut.tss.ss0 != 0
+                        && active_window != 0
                     {
                         let console =
                             unsafe { &mut *(console_task_mut.console_addr as *mut Console) };
@@ -312,7 +322,6 @@ pub extern "C" fn hrmain() {
                         if moving {
                             let x = new_x - mouse_move_x;
                             let y = new_y - mouse_move_y;
-                            let sheet = sheet_manager.sheets_data[target_sheet_index];
                             new_wx = (x + tmp_sheet_x + 2) & !3;
                             new_wy = new_wy + y;
                             mouse_move_y = new_y;
@@ -404,6 +413,8 @@ pub extern "C" fn hrmain() {
                         }
                     }
                 }
+            } else if EXIT_OFFSET as u32 <= i && i <= 1023 {
+                sheet_manager.close(i as usize - EXIT_OFFSET);
             }
         } else {
             if new_mx >= 0 {
@@ -463,8 +474,8 @@ fn open_console(
     *console_fifo = Fifo::new(128, Some(console_task_index));
     console_task_mut.fifo_addr = console_fifo_addr;
 
-    let console_esp = memman.alloc_4k(64 * 1024).unwrap() + 64 * 1024 - 12;
-    console_task_mut.tss.esp = console_esp as i32;
+    console_task_mut.console_stack = memman.alloc_4k(64 * 1024).unwrap() as usize;
+    console_task_mut.tss.esp = console_task_mut.console_stack as i32 + 64 * 1024 - 12;
     console_task_mut.tss.eip = console_task as i32;
     console_task_mut.tss.es = 1 * 8;
     console_task_mut.tss.cs = 2 * 8;

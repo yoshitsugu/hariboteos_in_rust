@@ -2,7 +2,7 @@ use core::default::Default;
 
 use crate::asm::{farjmp, load_tr};
 use crate::descriptor_table::{SegmentDescriptor, ADR_GDT, AR_TSS32};
-use crate::memory::MemMan;
+use crate::memory::{MemMan, MEMMAN_ADDR};
 use crate::timer::TIMER_MANAGER;
 
 const MAX_TASKS: usize = 1000;
@@ -51,6 +51,7 @@ pub struct Task {
     pub fifo_addr: usize,
     pub console_addr: usize,
     pub ds_base: usize,
+    pub console_stack: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +72,7 @@ impl Task {
             fifo_addr: 0,
             console_addr: 0,
             ds_base: 0,
+            console_stack: 0,
         }
     }
 }
@@ -150,6 +152,15 @@ impl TaskManager {
         for i in task_order..lv.running_count {
             lv.tasks[i] = lv.tasks[i + 1];
         }
+    }
+
+    pub fn close_task(&mut self, task_index: usize) {
+        self.sleep(task_index);
+        let mut task = &mut self.tasks_data[task_index];
+        let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
+        memman.free_4k(task.console_stack as u32, 64 * 1024).unwrap();
+        memman.free_4k(task.fifo_addr as u32, 128 * 4).unwrap();
+        task.flag = TaskFlag::AVAILABLE;
     }
 
     pub fn switchsub(&mut self) {
