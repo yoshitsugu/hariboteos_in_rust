@@ -11,7 +11,7 @@ use crate::sheet::{SheetFlag, SheetManager, MAX_SHEETS};
 use crate::timer::TIMER_MANAGER;
 use crate::vga::{boxfill, draw_line, make_window, to_color, Color, SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::{
-    open_console, write_with_bg, EXIT_CONSOLE, EXIT_OFFSET, SHEET_MANAGER_ADDR, TASK_A_FIFO_ADDR,
+    open_console, write_with_bg, EXIT_CONSOLE, EXIT_OFFSET, EXIT_TASK_OFFSET, SHEET_MANAGER_ADDR, TASK_A_FIFO_ADDR, open_console_task
 };
 
 pub const CONSOLE_CURSOR_ON: u32 = 2;
@@ -312,6 +312,9 @@ impl Console {
         if self.cursor_y < MAX_CURSOR_Y {
             self.cursor_y += 16;
         } else {
+            if self.sheet_index == 0 {
+                return;
+            }
             for y in MIN_CURSOR_Y..MAX_CURSOR_Y {
                 for x in (MIN_CURSOR_X - 8)..MAX_CURSOR_X {
                     let x = x as usize;
@@ -358,16 +361,18 @@ impl Console {
         }
         let cmd = cmd.unwrap();
         let cmd_str = from_utf8(&cmd).unwrap();
-        if cmd_str == "mem" {
+        if cmd_str == "mem" && self.sheet_index != 0 {
             self.cmd_mem(memtotal);
-        } else if cmd_str == "clear" {
+        } else if cmd_str == "clear" && self.sheet_index != 0 {
             self.cmd_clear();
-        } else if cmd_str == "ls" {
+        } else if cmd_str == "ls" && self.sheet_index != 0 {
             self.cmd_ls();
-        } else if cmd_str == "cat" {
+        } else if cmd_str == "cat" && self.sheet_index != 0 {
             self.cmd_cat(cmdline_strs, fat);
         } else if cmd_str == "start" {
             self.cmd_start(cmdline_strs, memtotal as u32);
+        } else if cmd_str == "ncst" {
+            self.cmd_ncst(cmdline_strs, memtotal as u32);
         } else if cmd_str == "exit" {
             self.cmd_exit(fat);
         } else {
@@ -497,11 +502,13 @@ impl Console {
     }
 
     fn display_error(&mut self, error_message: &'static str) {
-        self.put_string(
-            error_message.as_bytes().as_ptr() as usize,
-            error_message.len(),
-            8,
-        );
+        if self.sheet_index != 0 {
+            self.put_string(
+                error_message.as_bytes().as_ptr() as usize,
+                error_message.len(),
+                8,
+            );
+        }
         self.newline();
         self.newline();
     }
@@ -528,19 +535,44 @@ impl Console {
         self.newline();
     }
 
+    pub fn cmd_ncst<'a>(&mut self, cmdline_strs: impl Iterator<Item = &'a [u8]>, memtotal: u32) {
+        let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+        let mut cmd = cmdline_strs.skip_while(|strs| strs.len() == 0);
+        let cmd = cmd.next();
+        if cmd.is_none() {
+            self.display_error("Command Not Found");
+            return;
+        }
+        let cmd = cmd.unwrap();
+        let task_index = open_console_task(task_manager, 0, memtotal);
+        let task = &task_manager.tasks_data[task_index];
+        let fifo = unsafe { &mut *(task.fifo_addr as *mut Fifo) };
+        for ci in 0..cmd.len() {
+            fifo.put(cmd[ci] as u32 + 256).unwrap();
+        }
+        fifo.put(10 + 256).unwrap(); // Enter
+        self.newline();
+    }
+
     pub fn cmd_exit(&mut self, fat: &[u32; MAX_FAT]) {
         let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
         let task_a_fifo_addr = unsafe { *(TASK_A_FIFO_ADDR as *const usize) };
         let task_a_fifo = unsafe { &mut *(task_a_fifo_addr as *mut Fifo) };
+        let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+        let task_index = task_manager.now_index();
         TIMER_MANAGER.lock().cancel(self.timer_index);
         memman.free_4k(fat.as_ptr() as u32, 4 * 2880).unwrap();
         cli();
+        if self.sheet_index != 0 {
         task_a_fifo
             .put(self.sheet_index as u32 + EXIT_OFFSET as u32)
             .unwrap();
+        } else {
+        task_a_fifo
+            .put(task_index as u32 + EXIT_TASK_OFFSET as u32)
+            .unwrap();
+        }
         sti();
-        let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
-        let task_index = task_manager.now_index();
         loop {
             task_manager.sleep(task_index);
         }
@@ -658,7 +690,9 @@ impl Console {
             if chr == 0x09 {
                 // タブ
                 loop {
-                    self.put_char(b' ', true);
+                    if self.sheet_index != 0 {
+                        self.put_char(b' ', true);
+                    }
                     if self.cursor_x == MAX_CURSOR_X {
                         self.cursor_x = 8;
                         self.newline();
@@ -676,7 +710,9 @@ impl Console {
                 // 復帰
                 // 何もしない
             } else {
-                self.put_char(chr, true);
+                if self.sheet_index != 0 {
+                    self.put_char(chr, true);
+                }
                 if self.cursor_x == MAX_CURSOR_X {
                     self.cursor_x = 8;
                     self.newline();
@@ -705,11 +741,13 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
     }
     let fifo = unsafe { &*(fifo_addr as *const Fifo) };
 
-    console.timer_index = TIMER_MANAGER.lock().alloc().unwrap();
-    TIMER_MANAGER
-        .lock()
-        .init_timer(console.timer_index, fifo_addr, 1);
-    TIMER_MANAGER.lock().set_time(console.timer_index, 50);
+    if sheet_index != 0 {
+        console.timer_index = TIMER_MANAGER.lock().alloc().unwrap();
+        TIMER_MANAGER
+            .lock()
+            .init_timer(console.timer_index, fifo_addr, 1);
+        TIMER_MANAGER.lock().set_time(console.timer_index, 50);
+    }
     let sheet = sheet_manager.sheets_data[sheet_index];
 
     let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
@@ -720,7 +758,9 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
         *((ADR_DISKIMG + 0x000200) as *const [u8; (MAX_FAT * 4)])
     });
 
+    if sheet_index != 0 {
     console.show_prompt();
+    }
 
     loop {
         cli();
@@ -761,9 +801,14 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
                         console.put_char(b' ', false);
                         console.newline();
                         console.run_cmd(cmdline, memtotal, fat);
+                        if sheet_index == 0 {
+                            console.cmd_exit(fat);
+                        }
                         cmdline = [b' '; MAX_CMD];
                         // プロンプト表示
+                        if sheet_index != 0 {
                         console.show_prompt();
+                        }
                         console.cursor_x = 16;
                     } else {
                         if console.cursor_x < MAX_CURSOR_X {
@@ -779,7 +824,7 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
             } else if i == EXIT_CONSOLE {
                 console.cmd_exit(fat);
             }
-            if console.cursor_on {
+            if console.sheet_index != 0 && console.cursor_on {
                 boxfill(
                     sheet.buf_addr,
                     sheet.width as isize,

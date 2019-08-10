@@ -42,6 +42,7 @@ const CONSOLE_WIDTH: usize = 256;
 const CONSOLE_HEIGHT: usize = 165;
 pub const TASK_A_FIFO_ADDR: usize = 0xfec;
 pub const EXIT_OFFSET: usize = 768;
+pub const EXIT_TASK_OFFSET: usize = 1024;
 pub const EXIT_CONSOLE: u32 = 4;
 
 #[no_mangle]
@@ -275,6 +276,7 @@ pub extern "C" fn hrmain() {
                 }
                 // Shift + F1 でアプリケーションを強制終了
                 {
+                    let tmp_task_index = active_sheet.task_index;
                     let mut console_task_mut =
                         &mut task_manager.tasks_data[active_sheet.task_index];
                     if key == 0x3b
@@ -291,6 +293,7 @@ pub extern "C" fn hrmain() {
                             unsafe { &console_task_mut.tss.esp0 } as *const i32 as i32;
                         console_task_mut.tss.eip = end_app as i32;
                         sti();
+                        task_manager.run(tmp_task_index, -1, 0);
                     }
                 }
                 // F11 で 1 の位置にあるSheetを下げる
@@ -396,7 +399,8 @@ pub extern "C" fn hrmain() {
                                                         console_task_mut.tss.eip = end_app as i32;
                                                     }
                                                     sti();
-                                                } else {
+                                                     task_manager.run(sheet.task_index, -1, 0);
+                                                          } else {
                                                     // コンソールのクローズ
                                                     let task =
                                                         task_manager.tasks_data[sheet.task_index];
@@ -424,8 +428,10 @@ pub extern "C" fn hrmain() {
                         }
                     }
                 }
-            } else if EXIT_OFFSET as u32 <= i && i <= 1023 {
+            } else if EXIT_OFFSET as u32 <= i && i < EXIT_TASK_OFFSET as u32 {
                 sheet_manager.close(i as usize - EXIT_OFFSET);
+            } else if EXIT_TASK_OFFSET as u32 <= i && i < 2024 {
+                task_manager.close_task(i as usize - EXIT_TASK_OFFSET);
             }
         } else {
             if new_mx >= 0 {
@@ -443,6 +449,38 @@ pub extern "C" fn hrmain() {
         }
     }
 }
+
+pub fn open_console_task(
+    task_manager: &mut TaskManager,
+    sheet_index: usize, memtotal: u32
+) -> usize {
+    let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
+    let console_task_index = task_manager.alloc().unwrap();
+    let mut console_task_mut = &mut task_manager.tasks_data[console_task_index];
+
+    let console_fifo_addr = memman.alloc_4k(128 * 4).unwrap() as usize;
+    let console_fifo = unsafe { &mut *(console_fifo_addr as *mut Fifo) };
+    *console_fifo = Fifo::new(128, Some(console_task_index));
+    console_task_mut.fifo_addr = console_fifo_addr;
+
+    console_task_mut.console_stack = memman.alloc_4k(64 * 1024).unwrap() as usize;
+    console_task_mut.tss.esp = console_task_mut.console_stack as i32 + 64 * 1024 - 12;
+    console_task_mut.tss.eip = console_task as i32;
+    console_task_mut.tss.es = 1 * 8;
+    console_task_mut.tss.cs = 2 * 8;
+    console_task_mut.tss.ss = 1 * 8;
+    console_task_mut.tss.ds = 1 * 8;
+    console_task_mut.tss.fs = 1 * 8;
+    console_task_mut.tss.gs = 1 * 8;
+
+    let ptr = unsafe { &mut *((console_task_mut.tss.esp + 4) as *mut usize) };
+    *ptr = sheet_index;
+    let ptr = unsafe { &mut *((console_task_mut.tss.esp + 8) as *mut usize) };
+    *ptr = memtotal as usize;
+    task_manager.run(console_task_index, 2, 2);
+    console_task_index
+}
+
 
 pub fn open_console(
     sheet_manager: &mut SheetManager,
@@ -477,32 +515,9 @@ pub fn open_console(
         128,
         Color::Black,
     );
-    let console_task_index = task_manager.alloc().unwrap();
-    let mut console_task_mut = &mut task_manager.tasks_data[console_task_index];
-
-    let console_fifo_addr = memman.alloc_4k(128 * 4).unwrap() as usize;
-    let console_fifo = unsafe { &mut *(console_fifo_addr as *mut Fifo) };
-    *console_fifo = Fifo::new(128, Some(console_task_index));
-    console_task_mut.fifo_addr = console_fifo_addr;
-
-    console_task_mut.console_stack = memman.alloc_4k(64 * 1024).unwrap() as usize;
-    console_task_mut.tss.esp = console_task_mut.console_stack as i32 + 64 * 1024 - 12;
-    console_task_mut.tss.eip = console_task as i32;
-    console_task_mut.tss.es = 1 * 8;
-    console_task_mut.tss.cs = 2 * 8;
-    console_task_mut.tss.ss = 1 * 8;
-    console_task_mut.tss.ds = 1 * 8;
-    console_task_mut.tss.fs = 1 * 8;
-    console_task_mut.tss.gs = 1 * 8;
-
-    let ptr = unsafe { &mut *((console_task_mut.tss.esp + 4) as *mut usize) };
-    *ptr = console_sheet;
-    let ptr = unsafe { &mut *((console_task_mut.tss.esp + 8) as *mut usize) };
-    *ptr = memtotal as usize;
-    task_manager.run(console_task_index, 2, 2);
     {
         let mut sheet_console = &mut sheet_manager.sheets_data[console_sheet];
-        sheet_console.task_index = console_task_index;
+        sheet_console.task_index = open_console_task(task_manager, console_sheet, memtotal);
         sheet_console.cursor = true;
     }
     console_sheet
