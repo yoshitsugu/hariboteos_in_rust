@@ -10,7 +10,7 @@ use crate::mt::{TaskManager, TASK_MANAGER_ADDR};
 use crate::sheet::{SheetFlag, SheetManager, MAX_SHEETS};
 use crate::timer::TIMER_MANAGER;
 use crate::vga::{boxfill, draw_line, make_window, to_color, Color, SCREEN_HEIGHT, SCREEN_WIDTH};
-use crate::{write_with_bg, EXIT_OFFSET, SHEET_MANAGER_ADDR, TASK_A_FIFO_ADDR};
+use crate::{write_with_bg, EXIT_CONSOLE, EXIT_OFFSET, SHEET_MANAGER_ADDR, TASK_A_FIFO_ADDR};
 
 pub const CONSOLE_CURSOR_ON: u32 = 2;
 pub const CONSOLE_CURSOR_OFF: u32 = 3;
@@ -750,6 +750,8 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
                 console.cursor_on = true;
             } else if i == CONSOLE_CURSOR_OFF {
                 console.cursor_on = false;
+            } else if i == EXIT_CONSOLE {
+                console.cmd_exit(fat);
             }
             if console.cursor_on {
                 boxfill(

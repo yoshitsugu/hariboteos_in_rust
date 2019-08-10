@@ -158,7 +158,9 @@ impl TaskManager {
         self.sleep(task_index);
         let mut task = &mut self.tasks_data[task_index];
         let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
-        memman.free_4k(task.console_stack as u32, 64 * 1024).unwrap();
+        memman
+            .free_4k(task.console_stack as u32, 64 * 1024)
+            .unwrap();
         memman.free_4k(task.fifo_addr as u32, 128 * 4).unwrap();
         task.flag = TaskFlag::AVAILABLE;
     }

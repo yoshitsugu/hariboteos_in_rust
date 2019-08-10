@@ -42,6 +42,7 @@ const CONSOLE_WIDTH: usize = 256;
 const CONSOLE_HEIGHT: usize = 165;
 pub const TASK_A_FIFO_ADDR: usize = 0xfec;
 pub const EXIT_OFFSET: usize = 768;
+pub const EXIT_CONSOLE: u32 = 4;
 
 #[no_mangle]
 #[start]
@@ -394,6 +395,16 @@ pub extern "C" fn hrmain() {
                                                                 as i32;
                                                         console_task_mut.tss.eip = end_app as i32;
                                                     }
+                                                    sti();
+                                                } else {
+                                                    // コンソールのクローズ
+                                                    let task =
+                                                        task_manager.tasks_data[sheet.task_index];
+                                                    cli();
+                                                    let console_fifo = unsafe {
+                                                        &mut *(task.fifo_addr as *mut Fifo)
+                                                    };
+                                                    console_fifo.put(EXIT_CONSOLE).unwrap();
                                                     sti();
                                                 }
                                             }
