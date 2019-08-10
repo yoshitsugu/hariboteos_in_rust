@@ -444,7 +444,7 @@ pub extern "C" fn hrmain() {
     }
 }
 
-fn open_console(
+pub fn open_console(
     sheet_manager: &mut SheetManager,
     task_manager: &mut TaskManager,
     memtotal: u32,

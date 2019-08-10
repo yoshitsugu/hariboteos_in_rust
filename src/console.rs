@@ -10,7 +10,9 @@ use crate::mt::{TaskManager, TASK_MANAGER_ADDR};
 use crate::sheet::{SheetFlag, SheetManager, MAX_SHEETS};
 use crate::timer::TIMER_MANAGER;
 use crate::vga::{boxfill, draw_line, make_window, to_color, Color, SCREEN_HEIGHT, SCREEN_WIDTH};
-use crate::{write_with_bg, EXIT_CONSOLE, EXIT_OFFSET, SHEET_MANAGER_ADDR, TASK_A_FIFO_ADDR};
+use crate::{
+    open_console, write_with_bg, EXIT_CONSOLE, EXIT_OFFSET, SHEET_MANAGER_ADDR, TASK_A_FIFO_ADDR,
+};
 
 pub const CONSOLE_CURSOR_ON: u32 = 2;
 pub const CONSOLE_CURSOR_OFF: u32 = 3;
@@ -364,6 +366,8 @@ impl Console {
             self.cmd_ls();
         } else if cmd_str == "cat" {
             self.cmd_cat(cmdline_strs, fat);
+        } else if cmd_str == "start" {
+            self.cmd_start(cmdline_strs, memtotal as u32);
         } else if cmd_str == "exit" {
             self.cmd_exit(fat);
         } else {
@@ -499,6 +503,28 @@ impl Console {
             8,
         );
         self.newline();
+        self.newline();
+    }
+
+    pub fn cmd_start<'a>(&mut self, cmdline_strs: impl Iterator<Item = &'a [u8]>, memtotal: u32) {
+        let mut cmd = cmdline_strs.skip_while(|strs| strs.len() == 0);
+        let cmd = cmd.next();
+        if cmd.is_none() {
+            self.display_error("Command Not Found");
+            return;
+        }
+        let cmd = cmd.unwrap();
+        let sheet_manager = unsafe { &mut *(self.sheet_manager_addr as *mut SheetManager) };
+        let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+        let sheet_index = open_console(sheet_manager, task_manager, memtotal);
+        let task = &task_manager.tasks_data[sheet_manager.sheets_data[sheet_index].task_index];
+        let fifo = unsafe { &mut *(task.fifo_addr as *mut Fifo) };
+        sheet_manager.slide(sheet_index, 32, 4);
+        sheet_manager.updown(sheet_index, sheet_manager.z_max);
+        for ci in 0..cmd.len() {
+            fifo.put(cmd[ci] as u32 + 256).unwrap();
+        }
+        fifo.put(10 + 256).unwrap(); // Enter
         self.newline();
     }
 
