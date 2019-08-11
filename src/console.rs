@@ -11,8 +11,8 @@ use crate::sheet::{SheetFlag, SheetManager, MAX_SHEETS};
 use crate::timer::TIMER_MANAGER;
 use crate::vga::{boxfill, draw_line, make_window, to_color, Color, SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::{
-    open_console, open_console_task, write_with_bg, EXIT_CONSOLE, EXIT_OFFSET, EXIT_TASK_OFFSET,
-    SHEET_MANAGER_ADDR, TASK_A_FIFO_ADDR,
+    open_console, open_console_task, write_with_bg, EXIT_CONSOLE, EXIT_OFFSET,
+    EXIT_ONLY_CONSOLE_OFFSET, EXIT_TASK_OFFSET, SHEET_MANAGER_ADDR, TASK_A_FIFO_ADDR,
 };
 
 pub const CONSOLE_CURSOR_ON: u32 = 2;
@@ -215,6 +215,14 @@ pub extern "C" fn hrb_api(
                 console.cursor_c = Color::White
             } else if i == 3 {
                 console.cursor_c = Color::Black
+            } else if i == 4 {
+                TIMER_MANAGER.lock().cancel(console.timer_index);
+                cli();
+                let task_a_fifo_addr = unsafe { *(TASK_A_FIFO_ADDR as *const usize) };
+                let task_a_fifo = unsafe { &mut *(task_a_fifo_addr as *mut Fifo) };
+                task_a_fifo.put(console.sheet_index as u32 + EXIT_ONLY_CONSOLE_OFFSET as u32).unwrap();
+                console.sheet_index = 0;
+                sti();
             } else if 256 <= i {
                 let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut u32) };
                 *reg_eax = i - 256;
@@ -774,7 +782,7 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
         } else {
             let i = fifo.get().unwrap();
             sti();
-            if i <= 1 {
+            if i <= 1 && console.sheet_index != 0 {
                 if i != 0 {
                     TIMER_MANAGER
                         .lock()
@@ -805,7 +813,7 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
                         console.put_char(b' ', false);
                         console.newline();
                         console.run_cmd(cmdline, memtotal, fat);
-                        if sheet_index == 0 {
+                        if console.sheet_index == 0 {
                             console.cmd_exit(fat);
                         }
                         cmdline = [b' '; MAX_CMD];
@@ -822,8 +830,21 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
                     }
                 }
             } else if i == CONSOLE_CURSOR_ON {
+                console.cursor_c = Color::White;
                 console.cursor_on = true;
             } else if i == CONSOLE_CURSOR_OFF {
+                if console.sheet_index != 0 {
+                    let sheet = sheet_manager.sheets_data[console.sheet_index];
+                    boxfill(
+                        sheet.buf_addr,
+                        sheet.width as isize,
+                        Color::Black,
+                        console.cursor_x,
+                        console.cursor_y,
+                        console.cursor_x + 7,
+                        console.cursor_y + 15,
+                    );
+                }
                 console.cursor_on = false;
             } else if i == EXIT_CONSOLE {
                 console.cmd_exit(fat);

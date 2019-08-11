@@ -43,6 +43,7 @@ const CONSOLE_HEIGHT: usize = 165;
 pub const TASK_A_FIFO_ADDR: usize = 0xfec;
 pub const EXIT_OFFSET: usize = 768;
 pub const EXIT_TASK_OFFSET: usize = 1024;
+pub const EXIT_ONLY_CONSOLE_OFFSET: usize = 2024;
 pub const EXIT_CONSOLE: u32 = 4;
 
 #[no_mangle]
@@ -404,6 +405,19 @@ pub extern "C" fn hrmain() {
                                                     // コンソールのクローズ
                                                     let task =
                                                         task_manager.tasks_data[sheet.task_index];
+                                                    sheet_manager.updown(target_sheet_index, None);
+                                                    window_off(
+                                                        sheet_manager,
+                                                        task_manager,
+                                                        active_window,
+                                                    );
+                                                    active_window = sheet_manager.sheets
+                                                        [sheet_manager.z_max.unwrap() - 1];
+                                                    window_on(
+                                                        sheet_manager,
+                                                        task_manager,
+                                                        active_window,
+                                                    );
                                                     cli();
                                                     let console_fifo = unsafe {
                                                         &mut *(task.fifo_addr as *mut Fifo)
@@ -430,8 +444,13 @@ pub extern "C" fn hrmain() {
                 }
             } else if EXIT_OFFSET as u32 <= i && i < EXIT_TASK_OFFSET as u32 {
                 sheet_manager.close(i as usize - EXIT_OFFSET);
-            } else if EXIT_TASK_OFFSET as u32 <= i && i < 2024 {
+            } else if EXIT_TASK_OFFSET as u32 <= i && i < EXIT_ONLY_CONSOLE_OFFSET as u32 {
                 task_manager.close_task(i as usize - EXIT_TASK_OFFSET);
+            } else if EXIT_ONLY_CONSOLE_OFFSET as u32 <= i && i < 2280 {
+                let free_sheet_index = i as usize - EXIT_ONLY_CONSOLE_OFFSET;
+                let free_sheet = sheet_manager.sheets_data[free_sheet_index];
+                memman.free_4k(free_sheet.buf_addr as u32, 256 * 165).unwrap();
+                sheet_manager.free(free_sheet_index);
             }
         } else {
             if new_mx >= 0 {
