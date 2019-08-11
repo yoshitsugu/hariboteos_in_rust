@@ -399,8 +399,8 @@ pub extern "C" fn hrmain() {
                                                         console_task_mut.tss.eip = end_app as i32;
                                                     }
                                                     sti();
-                                                     task_manager.run(sheet.task_index, -1, 0);
-                                                          } else {
+                                                    task_manager.run(sheet.task_index, -1, 0);
+                                                } else {
                                                     // コンソールのクローズ
                                                     let task =
                                                         task_manager.tasks_data[sheet.task_index];
@@ -452,7 +452,8 @@ pub extern "C" fn hrmain() {
 
 pub fn open_console_task(
     task_manager: &mut TaskManager,
-    sheet_index: usize, memtotal: u32
+    sheet_index: usize,
+    memtotal: u32,
 ) -> usize {
     let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
     let console_task_index = task_manager.alloc().unwrap();
@@ -480,7 +481,6 @@ pub fn open_console_task(
     task_manager.run(console_task_index, 2, 2);
     console_task_index
 }
-
 
 pub fn open_console(
     sheet_manager: &mut SheetManager,

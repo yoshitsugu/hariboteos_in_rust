@@ -11,7 +11,8 @@ use crate::sheet::{SheetFlag, SheetManager, MAX_SHEETS};
 use crate::timer::TIMER_MANAGER;
 use crate::vga::{boxfill, draw_line, make_window, to_color, Color, SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::{
-    open_console, write_with_bg, EXIT_CONSOLE, EXIT_OFFSET, EXIT_TASK_OFFSET, SHEET_MANAGER_ADDR, TASK_A_FIFO_ADDR, open_console_task
+    open_console, open_console_task, write_with_bg, EXIT_CONSOLE, EXIT_OFFSET, EXIT_TASK_OFFSET,
+    SHEET_MANAGER_ADDR, TASK_A_FIFO_ADDR,
 };
 
 pub const CONSOLE_CURSOR_ON: u32 = 2;
@@ -285,21 +286,24 @@ impl Console {
     }
 
     pub fn put_char(&mut self, char_num: u8, move_cursor: bool) {
-        let sheet_manager = unsafe { &mut *(self.sheet_manager_addr as *mut SheetManager) };
-        let sheet = sheet_manager.sheets_data[self.sheet_index];
-        write_with_bg!(
-            sheet_manager,
-            self.sheet_index,
-            sheet.width,
-            sheet.height,
-            self.cursor_x,
-            self.cursor_y,
-            Color::White,
-            Color::Black,
-            1,
-            "{}",
-            char_num as char,
-        );
+        if self.sheet_index != 0 {
+            let sheet_manager = unsafe { &mut *(self.sheet_manager_addr as *mut SheetManager) };
+
+            let sheet = sheet_manager.sheets_data[self.sheet_index];
+            write_with_bg!(
+                sheet_manager,
+                self.sheet_index,
+                sheet.width,
+                sheet.height,
+                self.cursor_x,
+                self.cursor_y,
+                Color::White,
+                Color::Black,
+                1,
+                "{}",
+                char_num as char,
+            );
+        }
         if move_cursor {
             self.cursor_x += 8;
         }
@@ -564,13 +568,13 @@ impl Console {
         memman.free_4k(fat.as_ptr() as u32, 4 * 2880).unwrap();
         cli();
         if self.sheet_index != 0 {
-        task_a_fifo
-            .put(self.sheet_index as u32 + EXIT_OFFSET as u32)
-            .unwrap();
+            task_a_fifo
+                .put(self.sheet_index as u32 + EXIT_OFFSET as u32)
+                .unwrap();
         } else {
-        task_a_fifo
-            .put(task_index as u32 + EXIT_TASK_OFFSET as u32)
-            .unwrap();
+            task_a_fifo
+                .put(task_index as u32 + EXIT_TASK_OFFSET as u32)
+                .unwrap();
         }
         sti();
         loop {
@@ -759,7 +763,7 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
     });
 
     if sheet_index != 0 {
-    console.show_prompt();
+        console.show_prompt();
     }
 
     loop {
@@ -807,7 +811,7 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
                         cmdline = [b' '; MAX_CMD];
                         // プロンプト表示
                         if sheet_index != 0 {
-                        console.show_prompt();
+                            console.show_prompt();
                         }
                         console.cursor_x = 16;
                     } else {
