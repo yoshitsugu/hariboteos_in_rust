@@ -13,13 +13,14 @@ $(OUTPUT_DIR)/%.bin: $(ASM_DIR)/%.asm Makefile $(OUTPUT_DIR_KEEP)
 $(OUTPUT_DIR)/haribote.sys : $(OUTPUT_DIR)/asmhead.bin $(OUTPUT_DIR)/kernel.bin
 	cat $^ > $@
 
-$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/lines.hrb $(OUTPUT_DIR)/timer.hrb $(OUTPUT_DIR)/beepdown.hrb $(OUTPUT_DIR)/color.hrb Makefile
+$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/crack7.hrb $(OUTPUT_DIR)/lines.hrb $(OUTPUT_DIR)/timer.hrb $(OUTPUT_DIR)/beepdown.hrb $(OUTPUT_DIR)/color.hrb Makefile
 	mformat -f 1440 -C -B $< -i $@ ::
 	mcopy $(OUTPUT_DIR)/haribote.sys -i $@ ::
 	mcopy $(OUTPUT_DIR)/lines.hrb -i $@ ::
 	mcopy $(OUTPUT_DIR)/timer.hrb -i $@ ::
 	mcopy $(OUTPUT_DIR)/beepdown.hrb -i $@ ::
 	mcopy $(OUTPUT_DIR)/color.hrb -i $@ ::
+	mcopy $(OUTPUT_DIR)/crack7.hrb -i $@ ::
 
 asm :
 	make $(OUTPUT_DIR)/ipl.bin 
@@ -58,6 +59,10 @@ $(OUTPUT_DIR)/%.a: $(APPS_DIR)/%
 
 $(OUTPUT_DIR)/app_asmfunc.o: apps/asmfunc.asm Makefile $(OUTPUT_DIR_KEEP)
 	nasm -f elf $< -o $@
+
+$(OUTPUT_DIR)/crack7.hrb: $(ASM_DIR)/crack7.asm $(OUTPUT_DIR)/app_asmfunc.o $(OUTPUT_DIR_KEEP)
+	nasm -f elf $< -o $(OUTPUT_DIR)/crack7.o
+	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $(OUTPUT_DIR)/crack7.o $(OUTPUT_DIR)/app_asmfunc.o -o $@
 
 $(OUTPUT_DIR)/%.hrb: $(OUTPUT_DIR)/%.a $(OUTPUT_DIR)/app_asmfunc.o $(OUTPUT_DIR_KEEP)
 	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $< $(OUTPUT_DIR)/app_asmfunc.o -o $@

@@ -1,7 +1,7 @@
 use core::default::Default;
 
 use crate::asm::{farjmp, load_tr};
-use crate::descriptor_table::{SegmentDescriptor, ADR_GDT, AR_TSS32};
+use crate::descriptor_table::{SegmentDescriptor, ADR_GDT, AR_LDT, AR_TSS32};
 use crate::memory::{MemMan, MEMMAN_ADDR};
 use crate::timer::TIMER_MANAGER;
 
@@ -41,6 +41,7 @@ pub struct TSS {
     pub iomap: i32,
 }
 
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Task {
     pub select: i32,
@@ -52,6 +53,7 @@ pub struct Task {
     pub console_addr: usize,
     pub ds_base: usize,
     pub console_stack: usize,
+    pub ldt: [SegmentDescriptor; 2],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,6 +75,10 @@ impl Task {
             console_addr: 0,
             ds_base: 0,
             console_stack: 0,
+            ldt: [
+                SegmentDescriptor::new(0, 0, 0),
+                SegmentDescriptor::new(0, 0, 0),
+            ],
         }
     }
 }
@@ -181,9 +187,15 @@ impl TaskManager {
         for i in 0..MAX_TASKS {
             let mut task = &mut self.tasks_data[i];
             task.select = (TASK_GDT0 + i as i32) * 8;
+            task.tss.ldtr = (TASK_GDT0 + MAX_TASKS as i32 + i as i32) * 8;
             let gdt =
                 unsafe { &mut *((ADR_GDT + (TASK_GDT0 + i as i32) * 8) as *mut SegmentDescriptor) };
             *gdt = SegmentDescriptor::new(103, &(task.tss) as *const TSS as i32, AR_TSS32);
+            let ldt = unsafe {
+                &mut *((ADR_GDT + (TASK_GDT0 + MAX_TASKS as i32 + i as i32) * 8)
+                    as *mut SegmentDescriptor)
+            };
+            *ldt = SegmentDescriptor::new(15, task.ldt.as_ptr() as i32, AR_LDT);
         }
         let task_index = self.alloc()?;
         {

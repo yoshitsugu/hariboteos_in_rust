@@ -449,7 +449,9 @@ pub extern "C" fn hrmain() {
             } else if EXIT_ONLY_CONSOLE_OFFSET as u32 <= i && i < 2280 {
                 let free_sheet_index = i as usize - EXIT_ONLY_CONSOLE_OFFSET;
                 let free_sheet = sheet_manager.sheets_data[free_sheet_index];
-                memman.free_4k(free_sheet.buf_addr as u32, 256 * 165).unwrap();
+                memman
+                    .free_4k(free_sheet.buf_addr as u32, 256 * 165)
+                    .unwrap();
                 sheet_manager.free(free_sheet_index);
             }
         } else {

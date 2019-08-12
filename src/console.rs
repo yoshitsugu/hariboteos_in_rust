@@ -1,7 +1,7 @@
 use core::str::from_utf8;
 
 use crate::asm::{cli, in8, out8, sti};
-use crate::descriptor_table::{SegmentDescriptor, ADR_GDT, AR_CODE32_ER, AR_DATA32_RW};
+use crate::descriptor_table::{SegmentDescriptor, AR_CODE32_ER, AR_DATA32_RW};
 use crate::fifo::Fifo;
 use crate::file::*;
 use crate::keyboard::KEYBOARD_OFFSET;
@@ -220,7 +220,9 @@ pub extern "C" fn hrb_api(
                 cli();
                 let task_a_fifo_addr = unsafe { *(TASK_A_FIFO_ADDR as *const usize) };
                 let task_a_fifo = unsafe { &mut *(task_a_fifo_addr as *mut Fifo) };
-                task_a_fifo.put(console.sheet_index as u32 + EXIT_ONLY_CONSOLE_OFFSET as u32).unwrap();
+                task_a_fifo
+                    .put(console.sheet_index as u32 + EXIT_ONLY_CONSOLE_OFFSET as u32)
+                    .unwrap();
                 console.sheet_index = 0;
                 sti();
             } else if 256 <= i {
@@ -617,8 +619,6 @@ impl Console {
 
         // kernel.ldを使ってリンクされたファイルのみ実行可能
         let mut app_eip = 0;
-        let content_gdt = task.select / 8 + 1000;
-        let app_gdt = task.select / 8 + 2000;
         let mut app_mem_addr = 0;
         let mut segment_size = 0;
         let mut esp = 0;
@@ -636,20 +636,17 @@ impl Console {
                 {
                     let mut task = &mut task_manager.tasks_data[task_index];
                     task.ds_base = app_mem_addr;
+                    task.ldt[0] = SegmentDescriptor::new(
+                        finfo.size - 1,
+                        content_addr as i32,
+                        AR_CODE32_ER + 0x60,
+                    );
+                    task.ldt[1] = SegmentDescriptor::new(
+                        segment_size as u32 - 1,
+                        app_mem_addr as i32,
+                        AR_DATA32_RW + 0x60,
+                    );
                 }
-
-                let gdt = unsafe { &mut *((ADR_GDT + content_gdt * 8) as *mut SegmentDescriptor) };
-                *gdt = SegmentDescriptor::new(
-                    finfo.size - 1,
-                    content_addr as i32,
-                    AR_CODE32_ER + 0x60,
-                );
-                let gdt = unsafe { &mut *((ADR_GDT + app_gdt * 8) as *mut SegmentDescriptor) };
-                *gdt = SegmentDescriptor::new(
-                    segment_size as u32 - 1,
-                    app_mem_addr as i32,
-                    AR_DATA32_RW + 0x60,
-                );
 
                 for i in 0..data_size {
                     let app_ptr = unsafe { &mut *((app_mem_addr + esp + i) as *mut u8) };
@@ -662,13 +659,7 @@ impl Console {
             let task = &task_manager.tasks_data[task_index];
             let esp0_addr = unsafe { &(task.tss.esp0) } as *const i32 as usize;
             unsafe {
-                _start_app(
-                    app_eip,
-                    content_gdt * 8,
-                    esp as i32,
-                    app_gdt * 8,
-                    esp0_addr as i32,
-                );
+                _start_app(app_eip, 0 * 8 + 4, esp as i32, 1 * 8 + 4, esp0_addr as i32);
             }
             {
                 let sheet_manager = unsafe { &mut *(self.sheet_manager_addr as *mut SheetManager) };

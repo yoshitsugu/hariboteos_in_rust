@@ -66,6 +66,7 @@ pub const AR_TSS32: i32 = 0x0089;
 const AR_INTGATE32: i32 = 0x008e;
 pub const AR_DATA32_RW: i32 = 0x4092;
 pub const AR_CODE32_ER: i32 = 0x409a;
+pub const AR_LDT: i32 = 0x0082;
 
 pub fn init() {
     // GDTの初期化
