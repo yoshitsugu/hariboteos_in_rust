@@ -450,7 +450,10 @@ pub extern "C" fn hrmain() {
                 let free_sheet_index = i as usize - EXIT_ONLY_CONSOLE_OFFSET;
                 let free_sheet = sheet_manager.sheets_data[free_sheet_index];
                 memman
-                    .free_4k(free_sheet.buf_addr as u32, 256 * 165)
+                    .free_4k(
+                        free_sheet.buf_addr as u32,
+                        (CONSOLE_WIDTH * CONSOLE_HEIGHT) as u32,
+                    )
                     .unwrap();
                 sheet_manager.free(free_sheet_index);
             }

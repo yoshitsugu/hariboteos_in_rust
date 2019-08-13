@@ -615,7 +615,6 @@ impl Console {
 
         let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
         let task_index = task_manager.now_index();
-        let task = task_manager.tasks_data[task_index];
 
         // kernel.ldを使ってリンクされたファイルのみ実行可能
         let mut app_eip = 0;

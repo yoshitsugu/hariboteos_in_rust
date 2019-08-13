@@ -17,7 +17,7 @@ SECTIONS{
 	/*.hrbオブジェクトファイルのフォーマットに従い、ヘッダを定義*/
 	.head 0x0 :
 	{
-		LONG((ADDR(.bss) + SIZEOF(.bss) + 0xfff) & ~ 0xfff)
+		LONG((ADDR(.bss) + SIZEOF(.bss) + 0xfff + 0xe000) & ~ 0xfff)
 		BYTE(0x48) BYTE(0x61) BYTE(0x72) BYTE(0x69)
 		LONG(0x0)
 		LONG(ADDR(.data))
