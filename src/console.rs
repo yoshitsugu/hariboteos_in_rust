@@ -52,19 +52,19 @@ pub extern "C" fn hrb_api(
         // 1文字出力
         console.put_char(eax as u8, true);
     } else if edx == 2 {
-        // 0がくるまで1文字ずつ出力
+        // 0まで出力
         let mut i = 0;
         loop {
             let chr = unsafe { *((ebx as usize + i as usize + ds_base) as *const u8) };
             if chr == 0 {
                 break;
             }
-            console.put_char(chr, true);
             i += 1;
         }
+        console.put_string(ebx as usize + ds_base, i, None);
     } else if edx == 3 {
         // 指定した文字数出力
-        console.put_string(ebx as usize, ecx as usize, 8);
+        console.put_string(ebx as usize, ecx as usize, None);
     } else if edx == 4 {
         return unsafe { &(task.tss.esp0) } as *const i32 as usize;
     } else if edx == 5 {
@@ -505,7 +505,7 @@ impl Console {
         if let Some(finfo) = target_finfo {
             let content_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
             finfo.load_file(content_addr, fat, ADR_DISKIMG + 0x003e00);
-            self.put_string(content_addr, finfo.size as usize, 8);
+            self.put_string(content_addr, finfo.size as usize, Some(8));
 
             self.newline();
             memman.free_4k(content_addr as u32, finfo.size).unwrap();
@@ -520,7 +520,7 @@ impl Console {
             self.put_string(
                 error_message.as_bytes().as_ptr() as usize,
                 error_message.len(),
-                8,
+                None,
             );
         }
         self.newline();
@@ -685,8 +685,15 @@ impl Console {
         }
     }
 
-    pub fn put_string(&mut self, string_addr: usize, string_length: usize, initial_x: usize) {
-        self.cursor_x = initial_x as isize;
+    pub fn put_string(
+        &mut self,
+        string_addr: usize,
+        string_length: usize,
+        initial_x: Option<usize>,
+    ) {
+        if initial_x.is_some() {
+            self.cursor_x = initial_x.unwrap() as isize
+        }
         for x in 0..string_length {
             let chr = unsafe { *((string_addr + x as usize) as *const u8) };
             if chr == 0x09 {
@@ -946,7 +953,7 @@ pub extern "C" fn exception_handler(message: &[u8], esp: *const usize) -> usize 
     let sheet_manager = unsafe { &mut *(sheet_manager_addr as *mut SheetManager) };
     let sheet = sheet_manager.sheets_data[console.sheet_index];
     console.newline();
-    console.put_string(message.as_ptr() as usize, message.len(), 8);
+    console.put_string(message.as_ptr() as usize, message.len(), Some(8));
     write_with_bg!(
         sheet_manager,
         console.sheet_index,

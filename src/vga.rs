@@ -303,7 +303,7 @@ macro_rules! write_with_bg {
                     $height as usize);
         use core::fmt::Write;
         write!(writer, $($arg)*).unwrap();
-        $sheet_manager.refresh($sheet_addr, $x as i32, $y as i32, $x as i32 + $length as i32 * 8, $y as i32 + 16);
+        $sheet_manager.refresh($sheet_addr, $x as i32, $y as i32, $x as i32 + $length as i32 * 8, $height as i32);
     }}
 }
 

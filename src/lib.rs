@@ -288,7 +288,7 @@ pub extern "C" fn hrmain() {
                         let console =
                             unsafe { &mut *(console_task_mut.console_addr as *mut Console) };
                         let message = b"\nBreak(key) :\n";
-                        console.put_string(message.as_ptr() as usize, message.len(), 8);
+                        console.put_string(message.as_ptr() as usize, message.len(), Some(8));
                         cli();
                         console_task_mut.tss.eax =
                             unsafe { &console_task_mut.tss.esp0 } as *const i32 as i32;
@@ -386,7 +386,7 @@ pub extern "C" fn hrmain() {
                                                     console.put_string(
                                                         message.as_ptr() as usize,
                                                         message.len(),
-                                                        8,
+                                                        Some(8),
                                                     );
                                                     cli();
                                                     {
