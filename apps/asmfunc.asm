@@ -19,6 +19,11 @@
 		GLOBAL	_api_settimer
 		GLOBAL	_api_freetimer
 		GLOBAL	_api_beep
+		GLOBAL	_api_fopen
+		GLOBAL	_api_fclose
+		GLOBAL	_api_fseek
+		GLOBAL	_api_fsize
+		GLOBAL	_api_fread
 
 [SECTION .text]
 
@@ -224,4 +229,45 @@ _api_beep:			; void api_beep(int tone);
 		MOV		EDX,20
 		MOV		EAX,[ESP+4]			; tone
 		INT		0x40
+		RET
+
+_api_fopen:			; int api_fopen(char *fname);
+		PUSH	EBX
+		MOV		EDX,21
+		MOV		EBX,[ESP+8]			; fname
+		INT		0x40
+		POP		EBX
+		RET
+
+_api_fclose:		; void api_fclose(int fhandle);
+		MOV		EDX,22
+		MOV		EAX,[ESP+4]			; fhandle
+		INT		0x40
+		RET
+
+_api_fseek:			; void api_fseek(int fhandle, int offset, int mode);
+		PUSH	EBX
+		MOV		EDX,23
+		MOV		EAX,[ESP+8]			; fhandle
+		MOV		ECX,[ESP+16]		; mode
+		MOV		EBX,[ESP+12]		; offset
+		INT		0x40
+		POP		EBX
+		RET
+
+_api_fsize:			; int api_fsize(int fhandle, int mode);
+		MOV		EDX,24
+		MOV		EAX,[ESP+4]			; fhandle
+		MOV		ECX,[ESP+8]			; mode
+		INT		0x40
+		RET
+
+_api_fread:			; int api_fread(char *buf, int maxsize, int fhandle);
+		PUSH	EBX
+		MOV		EDX,25
+		MOV		EAX,[ESP+16]		; fhandle
+		MOV		ECX,[ESP+12]		; maxsize
+		MOV		EBX,[ESP+8]			; buf
+		INT		0x40
+		POP		EBX
 		RET

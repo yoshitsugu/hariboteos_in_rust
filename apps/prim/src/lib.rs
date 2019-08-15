@@ -22,7 +22,7 @@ struct Prim {
 pub extern "C" fn hrmain() {
     let mut flag: [bool; MAX] = [false; MAX];
     use core::fmt::Write;
- 
+
     for i in 2..MAX {
         if !flag[i] {
             let mut prim = Prim {

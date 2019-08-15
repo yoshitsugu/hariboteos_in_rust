@@ -25,6 +25,8 @@ const MAX_CURSOR_X: isize = 8 + 240;
 const MAX_CURSOR_Y: isize = 28 + 112;
 const MAX_CMD: usize = 30;
 
+const MAX_FILE_HANDLER: usize = 8;
+
 extern "C" {
     fn _start_app(eip: i32, cs: i32, esp: i32, ds: i32, tss_esp_addr: i32);
 }
@@ -40,6 +42,7 @@ pub extern "C" fn hrb_api(
     ecx: i32,
     eax: i32,
 ) -> usize {
+    let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
     let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
     let task_index = task_manager.now_index();
     let task = task_manager.tasks_data[task_index];
@@ -50,7 +53,7 @@ pub extern "C" fn hrb_api(
 
     if edx == 1 {
         // 1文字出力
-        console.put_char(eax as u8, true);
+        console.put_string([eax as u8].as_ptr() as usize, 1, None);
     } else if edx == 2 {
         // 0まで出力
         let mut i = 0;
@@ -260,6 +263,81 @@ pub extern "C" fn hrb_api(
             let i = in8(0x61);
             out8(0x61, (i | 0x03) & 0x0f);
         }
+    } else if edx == 21 {
+        let fhandlers =
+            unsafe { &mut *(task.file_handler_addr as *mut [FileHandler; MAX_FILE_HANDLER]) };
+        let mut fhandler: Option<&mut FileHandler> = None;
+        for i in 0..MAX_FILE_HANDLER {
+            if fhandlers[i].buf_addr == 0 {
+                fhandler = Some(&mut fhandlers[i]);
+                break;
+            }
+        }
+        let mut i = 0;
+        loop {
+            let chr = unsafe { *((ebx as usize + i as usize + ds_base) as *const u8) };
+            if chr == 0 {
+                break;
+            }
+            i += 1;
+        }
+        let filename = unsafe { *((ebx as usize + ds_base) as *const [u8; 30]) };
+        let fat = unsafe { *(task.fat_addr as *const [u32; MAX_FAT]) };
+        if let Some(fhandler) = fhandler {
+            let finfo = search_file(&filename[0..i]);
+            if let Some(finfo) = finfo {
+                let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut usize) };
+                *reg_eax = fhandler as *const FileHandler as usize;
+                fhandler.buf_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
+                fhandler.size = finfo.size as i32;
+                fhandler.pos = 0;
+                finfo.load_file(fhandler.buf_addr, &fat, ADR_DISKIMG + 0x003e00);
+            }
+        }
+    } else if edx == 22 {
+        let mut fh = unsafe { &mut *(eax as *mut FileHandler) };
+        memman.free_4k(fh.buf_addr as u32, fh.size as u32).unwrap();
+        fh.buf_addr = 0;
+    } else if edx == 23 {
+        let mut fh = unsafe { &mut *(eax as *mut FileHandler) };
+        if ecx == 0 {
+            fh.pos = ebx;
+        } else if ecx == 1 {
+            fh.pos += ebx;
+        } else if ecx == 2 {
+            fh.pos = fh.size + ebx;
+        }
+        if fh.pos < 0 {
+            fh.pos = 0;
+        }
+        if fh.pos > fh.size {
+            fh.pos = fh.size;
+        }
+    } else if edx == 24 {
+        let fh = unsafe { &mut *(eax as *mut FileHandler) };
+        let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut i32) };
+        if ecx == 0 {
+            *reg_eax = fh.size;
+        } else if ecx == 1 {
+            *reg_eax = fh.pos;
+        } else if ecx == 2 {
+            *reg_eax = fh.pos - fh.size;
+        }
+    } else if edx == 25 {
+        let mut fh = unsafe { &mut *(eax as *mut FileHandler) };
+        let mut size: usize = 0;
+        for i in 0..(ecx as usize) {
+            if fh.pos == fh.size {
+                break;
+            }
+            let ptr = unsafe { &mut *((ebx as usize + ds_base + i) as *mut u8) };
+            let buf = unsafe { &*((fh.buf_addr + fh.pos as usize) as *const u8) };
+            *ptr = *buf;
+            fh.pos += 1;
+            size = i + 1;
+        }
+        let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut usize) };
+        *reg_eax = size;
     }
     0
 }
@@ -672,6 +750,18 @@ impl Console {
                     }
                 }
             }
+            // クローズしていないファイルをクローズ
+            let fhandlers =
+                unsafe { &mut *(task.file_handler_addr as *mut [FileHandler; MAX_FILE_HANDLER]) };
+            for i in 0..8 {
+                let mut fhandler = &mut fhandlers[i];
+                if fhandler.buf_addr != 0 {
+                    memman
+                        .free_4k(fhandler.buf_addr as u32, fhandler.size as u32)
+                        .unwrap();
+                    fhandler.buf_addr = 0;
+                }
+            }
             TIMER_MANAGER.lock().cancel_all(task.fifo_addr);
             self.newline();
         } else {
@@ -735,18 +825,29 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
     let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
     let task_index = task_manager.now_index();
 
+    let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
+
     // コマンドを保持するための配列
     let mut cmdline: [u8; MAX_CMD] = [0; MAX_CMD];
 
     let sheet_manager_addr = unsafe { SHEET_MANAGER_ADDR };
     let sheet_manager = unsafe { &mut *(sheet_manager_addr as *mut SheetManager) };
 
+    let fat_addr = memman.alloc_4k(4 * MAX_FAT as u32).unwrap();
+    let fat = unsafe { &mut *(fat_addr as *mut [u32; (MAX_FAT)]) };
+    read_fat(fat, unsafe {
+        *((ADR_DISKIMG + 0x000200) as *const [u8; (MAX_FAT * 4)])
+    });
+
     let mut console = Console::new(sheet_index, sheet_manager_addr);
     let fifo_addr: usize;
+    let fhandlers: [FileHandler; MAX_FILE_HANDLER] = [FileHandler::new(); MAX_FILE_HANDLER];
     {
         let mut task = &mut task_manager.tasks_data[task_index];
         task.console_addr = &console as *const Console as usize;
         fifo_addr = task.fifo_addr;
+        task.file_handler_addr = fhandlers.as_ptr() as usize;
+        task.fat_addr = fat_addr as usize;
     }
     let fifo = unsafe { &*(fifo_addr as *const Fifo) };
 
@@ -758,14 +859,6 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
         TIMER_MANAGER.lock().set_time(console.timer_index, 50);
     }
     let sheet = sheet_manager.sheets_data[sheet_index];
-
-    let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
-
-    let fat_addr = memman.alloc_4k(4 * MAX_FAT as u32).unwrap();
-    let fat = unsafe { &mut *(fat_addr as *mut [u32; (MAX_FAT)]) };
-    read_fat(fat, unsafe {
-        *((ADR_DISKIMG + 0x000200) as *const [u8; (MAX_FAT * 4)])
-    });
 
     if sheet_index != 0 {
         console.show_prompt();

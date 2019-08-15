@@ -48,3 +48,21 @@ pub fn read_fat(fat: &mut [u32; MAX_FAT], img: [u8; MAX_FAT * 4]) {
         j += 3;
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct FileHandler {
+    pub buf_addr: usize,
+    pub size: i32,
+    pub pos: i32,
+}
+
+impl FileHandler {
+    pub fn new() -> FileHandler {
+        FileHandler {
+            buf_addr: 0,
+            size: 0,
+            pos: 0,
+        }
+    }
+}

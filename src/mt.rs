@@ -54,6 +54,8 @@ pub struct Task {
     pub ds_base: usize,
     pub console_stack: usize,
     pub ldt: [SegmentDescriptor; 2],
+    pub file_handler_addr: usize,
+    pub fat_addr: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +81,8 @@ impl Task {
                 SegmentDescriptor::new(0, 0, 0),
                 SegmentDescriptor::new(0, 0, 0),
             ],
+            file_handler_addr: 0,
+            fat_addr: 0,
         }
     }
 }
