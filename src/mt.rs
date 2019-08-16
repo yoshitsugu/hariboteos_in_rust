@@ -56,6 +56,7 @@ pub struct Task {
     pub ldt: [SegmentDescriptor; 2],
     pub file_handler_addr: usize,
     pub fat_addr: usize,
+    pub cmdline_addr: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +84,7 @@ impl Task {
             ],
             file_handler_addr: 0,
             fat_addr: 0,
+            cmdline_addr: 0,
         }
     }
 }

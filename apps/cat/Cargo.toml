@@ -1,0 +1,21 @@
+[package]
+name = "cat"
+version = "0.1.0"
+authors = ["yoshitsugu <yoshitsugu@users.noreply.github.com>"]
+edition = "2018"
+
+[dependencies]
+
+[profile.dev]
+opt-level = 2
+lto = true
+panic = "abort"
+
+[profile.release]
+opt-level = 2
+lto = true
+panic = "abort"
+
+[lib]
+name = "cat"
+crate-type = ["staticlib"]

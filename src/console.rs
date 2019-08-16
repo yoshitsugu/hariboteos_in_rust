@@ -338,6 +338,19 @@ pub extern "C" fn hrb_api(
         }
         let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut usize) };
         *reg_eax = size;
+    } else if edx == 26 {
+        let mut i = 0;
+        loop {
+            let ptr = unsafe { &mut *((ebx as usize + ds_base + i) as *mut u8) };
+            let buf = unsafe { &*((task.cmdline_addr + i) as *const u8) };
+            *ptr = *buf;
+            if *buf == 0 {
+                break;
+            }
+            i += 1;
+        }
+        let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut usize) };
+        *reg_eax = i;
     }
     0
 }
@@ -459,8 +472,6 @@ impl Console {
             self.cmd_clear();
         } else if cmd_str == "ls" && self.sheet_index != 0 {
             self.cmd_ls();
-        } else if cmd_str == "cat" && self.sheet_index != 0 {
-            self.cmd_cat(cmdline_strs, fat);
         } else if cmd_str == "start" {
             self.cmd_start(cmdline_strs, memtotal as u32);
         } else if cmd_str == "ncst" {
@@ -563,34 +574,6 @@ impl Console {
             }
         }
         self.newline();
-    }
-
-    pub fn cmd_cat<'a>(
-        &mut self,
-        cmdline_strs: impl Iterator<Item = &'a [u8]>,
-        fat: &[u32; MAX_FAT],
-    ) {
-        let memman = unsafe { &mut *(MEMMAN_ADDR as *mut MemMan) };
-        // ファイル名となるところを抽出
-        let mut filename = cmdline_strs.skip_while(|strs| strs.len() == 0);
-        let filename = filename.next();
-        if filename.is_none() {
-            self.display_error("File Not Found");
-            return;
-        }
-        let filename = filename.unwrap();
-        let target_finfo = search_file(filename);
-        if let Some(finfo) = target_finfo {
-            let content_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
-            finfo.load_file(content_addr, fat, ADR_DISKIMG + 0x003e00);
-            self.put_string(content_addr, finfo.size as usize, Some(8));
-
-            self.newline();
-            memman.free_4k(content_addr as u32, finfo.size).unwrap();
-        } else {
-            self.display_error("File Not Found");
-            return;
-        }
     }
 
     fn display_error(&mut self, error_message: &'static str) {
@@ -848,6 +831,7 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
         fifo_addr = task.fifo_addr;
         task.file_handler_addr = fhandlers.as_ptr() as usize;
         task.fat_addr = fat_addr as usize;
+        task.cmdline_addr = cmdline.as_ptr() as usize;
     }
     let fifo = unsafe { &*(fifo_addr as *const Fifo) };
 

@@ -13,7 +13,7 @@ $(OUTPUT_DIR)/%.bin: $(ASM_DIR)/%.asm Makefile $(OUTPUT_DIR_KEEP)
 $(OUTPUT_DIR)/haribote.sys : $(OUTPUT_DIR)/asmhead.bin $(OUTPUT_DIR)/kernel.bin
 	cat $^ > $@
 
-$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/prim.hrb $(OUTPUT_DIR)/lines.hrb $(OUTPUT_DIR)/timer.hrb $(OUTPUT_DIR)/beepdown.hrb $(OUTPUT_DIR)/color.hrb $(OUTPUT_DIR)/catipl.hrb Makefile
+$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/prim.hrb $(OUTPUT_DIR)/lines.hrb $(OUTPUT_DIR)/timer.hrb $(OUTPUT_DIR)/beepdown.hrb $(OUTPUT_DIR)/color.hrb $(OUTPUT_DIR)/catipl.hrb $(OUTPUT_DIR)/cat.hrb Makefile
 	mformat -f 1440 -C -B $< -i $@ ::
 	mcopy $(OUTPUT_DIR)/haribote.sys -i $@ ::
 	mcopy $(OUTPUT_DIR)/lines.hrb -i $@ ::
@@ -22,7 +22,8 @@ $(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys $(OUTPUT_DIR)/prim.hrb
 	mcopy $(OUTPUT_DIR)/color.hrb -i $@ ::
 	mcopy $(OUTPUT_DIR)/prim.hrb -i $@ ::
 	mcopy $(OUTPUT_DIR)/catipl.hrb -i $@ ::
-	mcopy $(ASM_DIR)/ipl.asm -i $@ ::
+	mcopy README.md -i $@ ::
+	mcopy $(OUTPUT_DIR)/cat.hrb -i $@ ::
 
 asm :
 	make $(OUTPUT_DIR)/ipl.bin 
