@@ -4,8 +4,6 @@ use lazy_static::lazy_static;
 
 use crate::asm;
 use crate::fonts::{HANKAKU, HANKAKU_HEIGHT, HANKAKU_WIDTH};
-use crate::mt::{LangMode, TaskManager, TASK_MANAGER_ADDR};
-use crate::NIHONGO_ADDR;
 
 const COLOR_PALETTE: [[u8; 3]; 16] = [
     [0x00, 0x00, 0x00], /*  0:黒 */
@@ -172,33 +170,35 @@ pub fn boxfill(buf: usize, xsize: isize, color: Color, x0: isize, y0: isize, x1:
 }
 
 pub fn print_char(buf: usize, xsize: usize, chr: u8, color: Color, startx: isize, starty: isize) {
-    let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
-    let task_index = task_manager.now_index();
-    let task = &task_manager.tasks_data[task_index];
     let offset = startx + starty * xsize as isize;
-    if task.lang_mode == LangMode::En {
-        let font = HANKAKU[chr as usize];
-        for y in 0..HANKAKU_HEIGHT {
-            for x in 0..HANKAKU_WIDTH {
-                if font[y][x] {
-                    let cell = (y * xsize + x) as isize;
-                    let ptr = unsafe { &mut *((buf as isize + cell + offset) as *mut Color) };
-                    *ptr = color;
-                }
+    let font = HANKAKU[chr as usize];
+    for y in 0..HANKAKU_HEIGHT {
+        for x in 0..HANKAKU_WIDTH {
+            if font[y][x] {
+                let cell = (y * xsize + x) as isize;
+                let ptr = unsafe { &mut *((buf as isize + cell + offset) as *mut Color) };
+                *ptr = color;
             }
         }
-    } else if task.lang_mode == LangMode::JpJis {
-        let nihongo_addr = unsafe { *(NIHONGO_ADDR as *const usize) };
-        let nihongos = unsafe { *(nihongo_addr as *const [[u8; HANKAKU_HEIGHT]; 256]) };
-        let nihongo = nihongos[chr as usize];
-        for y in 0..HANKAKU_HEIGHT {
-            let n = nihongo[y];
-            for x in 0..HANKAKU_WIDTH {
-                if (n & (1 << (7 - x))) != 0 {
-                    let cell = (y * xsize + x) as isize;
-                    let ptr = unsafe { &mut *((buf as isize + cell + offset) as *mut Color) };
-                    *ptr = color;
-                }
+    }
+}
+
+pub fn print_nihongo_char(
+    buf: usize,
+    xsize: usize,
+    color: Color,
+    startx: isize,
+    starty: isize,
+    nihongo: [u8; HANKAKU_HEIGHT],
+) {
+    let offset = startx + starty * xsize as isize;
+    for y in 0..HANKAKU_HEIGHT {
+        let n = nihongo[y];
+        for x in 0..HANKAKU_WIDTH {
+            if (n & (1 << (7 - x))) != 0 {
+                let cell = (y * xsize + x) as isize;
+                let ptr = unsafe { &mut *((buf as isize + cell + offset) as *mut Color) };
+                *ptr = color;
             }
         }
     }

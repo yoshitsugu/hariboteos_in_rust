@@ -58,6 +58,7 @@ pub struct Task {
     pub fat_addr: usize,
     pub cmdline_addr: usize,
     pub lang_mode: LangMode,
+    pub lang_byte1: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,6 +105,7 @@ impl Task {
             fat_addr: 0,
             cmdline_addr: 0,
             lang_mode: LangMode::En,
+            lang_byte1: 0,
         }
     }
 }
