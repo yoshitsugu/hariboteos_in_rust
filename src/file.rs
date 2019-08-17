@@ -40,6 +40,74 @@ impl FileInfo {
     }
 }
 
+pub fn search_file(filename: &[u8]) -> Option<FileInfo> {
+    let mut target_finfo = None;
+    // 拡張子の前後でわける
+    let mut filename = filename.split(|c| *c == b'.');
+    let basename = filename.next();
+    let extname = filename.next();
+    let mut b = [b' '; 8];
+    let mut e = [b' '; 3];
+    if let Some(basename) = basename {
+        for fi in 0..b.len() {
+            if basename.len() <= fi {
+                break;
+            }
+            if b'a' <= basename[fi] && basename[fi] <= b'z' {
+                // 小文字は大文字で正規化しておく
+                b[fi] = basename[fi] - 0x20;
+            } else {
+                b[fi] = basename[fi];
+            }
+        }
+    } else {
+        return None;
+    }
+    if let Some(extname) = extname {
+        for fi in 0..e.len() {
+            if extname.len() <= fi {
+                break;
+            }
+            if b'a' <= extname[fi] && extname[fi] <= b'z' {
+                e[fi] = extname[fi] - 0x20;
+            } else {
+                e[fi] = extname[fi];
+            }
+        }
+    }
+    for findex in 0..MAX_FILE_INFO {
+        let finfo = unsafe {
+            *((ADR_DISKIMG + ADR_FILE_OFFSET + findex * core::mem::size_of::<FileInfo>())
+                as *const FileInfo)
+        };
+        if finfo.name[0] == 0x00 {
+            break;
+        }
+        if finfo.name[0] != 0xe5 {
+            if (finfo.ftype & 0x18) == 0 {
+                let mut filename_equal = true;
+                for y in 0..finfo.name.len() {
+                    if finfo.name[y] != b[y] {
+                        filename_equal = false;
+                        break;
+                    }
+                }
+                for y in 0..finfo.ext.len() {
+                    if finfo.ext[y] != e[y] {
+                        filename_equal = false;
+                        break;
+                    }
+                }
+                if filename_equal {
+                    target_finfo = Some(finfo);
+                    break;
+                }
+            }
+        }
+    }
+    target_finfo
+}
+
 pub fn read_fat(fat: &mut [u32; MAX_FAT], img: [u8; MAX_FAT * 4]) {
     let mut j = 0;
     for i in (0..MAX_FAT).step_by(2) {

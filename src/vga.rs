@@ -3,7 +3,9 @@ use core::fmt::Write;
 use lazy_static::lazy_static;
 
 use crate::asm;
-use crate::fonts::{FONTS, FONT_HEIGHT, FONT_WIDTH};
+use crate::fonts::{HANKAKU, HANKAKU_HEIGHT, HANKAKU_WIDTH};
+use crate::mt::{LangMode, TaskManager, TASK_MANAGER_ADDR};
+use crate::NIHONGO_ADDR;
 
 const COLOR_PALETTE: [[u8; 3]; 16] = [
     [0x00, 0x00, 0x00], /*  0:黒 */
@@ -169,16 +171,34 @@ pub fn boxfill(buf: usize, xsize: isize, color: Color, x0: isize, y0: isize, x1:
     }
 }
 
-pub fn print_char(buf: usize, xsize: usize, char: u8, color: Color, startx: isize, starty: isize) {
-    let font = FONTS[char as usize];
-    let color = color as u8;
+pub fn print_char(buf: usize, xsize: usize, chr: u8, color: Color, startx: isize, starty: isize) {
+    let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+    let task_index = task_manager.now_index();
+    let task = &task_manager.tasks_data[task_index];
     let offset = startx + starty * xsize as isize;
-    for y in 0..FONT_HEIGHT {
-        for x in 0..FONT_WIDTH {
-            if font[y][x] {
-                let cell = (y * xsize + x) as isize;
-                let ptr = unsafe { &mut *((buf as isize + cell + offset) as *mut u8) };
-                *ptr = color;
+    if task.lang_mode == LangMode::En {
+        let font = HANKAKU[chr as usize];
+        for y in 0..HANKAKU_HEIGHT {
+            for x in 0..HANKAKU_WIDTH {
+                if font[y][x] {
+                    let cell = (y * xsize + x) as isize;
+                    let ptr = unsafe { &mut *((buf as isize + cell + offset) as *mut Color) };
+                    *ptr = color;
+                }
+            }
+        }
+    } else if task.lang_mode == LangMode::JpJis {
+        let nihongo_addr = unsafe { *(NIHONGO_ADDR as *const usize) };
+        let nihongos = unsafe { *(nihongo_addr as *const [[u8; HANKAKU_HEIGHT]; 256]) };
+        let nihongo = nihongos[chr as usize];
+        for y in 0..HANKAKU_HEIGHT {
+            let n = nihongo[y];
+            for x in 0..HANKAKU_WIDTH {
+                if (n & (1 << (7 - x))) != 0 {
+                    let cell = (y * xsize + x) as isize;
+                    let ptr = unsafe { &mut *((buf as isize + cell + offset) as *mut Color) };
+                    *ptr = color;
+                }
             }
         }
     }
@@ -235,7 +255,7 @@ impl ScreenWriter {
 
     fn newline(&mut self) {
         self.x = self.initial_x;
-        self.y = self.y + FONT_HEIGHT;
+        self.y = self.y + HANKAKU_HEIGHT;
     }
 }
 
@@ -254,7 +274,7 @@ impl fmt::Write for ScreenWriter {
             } else {
                 *VRAM_ADDR
             };
-            if self.x + FONT_WIDTH <= width && self.y + FONT_HEIGHT <= height {
+            if self.x + HANKAKU_WIDTH <= width && self.y + HANKAKU_HEIGHT <= height {
                 print_char(
                     buf_addr,
                     self.xsize,
@@ -263,7 +283,7 @@ impl fmt::Write for ScreenWriter {
                     self.x as isize,
                     self.y as isize,
                 );
-            } else if self.y + FONT_HEIGHT * 2 < height {
+            } else if self.y + HANKAKU_HEIGHT * 2 < height {
                 // 1行ずらせば入る場合は1行ずらしてから表示
                 self.newline();
                 print_char(
@@ -276,9 +296,9 @@ impl fmt::Write for ScreenWriter {
                 );
             }
             // 次の文字用の位置に移動
-            if self.x + FONT_WIDTH < width {
-                self.x = self.x + FONT_WIDTH;
-            } else if self.y + FONT_HEIGHT < height {
+            if self.x + HANKAKU_WIDTH < width {
+                self.x = self.x + HANKAKU_WIDTH;
+            } else if self.y + HANKAKU_HEIGHT < height {
                 self.newline();
             } else {
                 self.x = width;

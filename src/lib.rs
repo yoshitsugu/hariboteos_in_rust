@@ -25,6 +25,8 @@ use core::panic::PanicInfo;
 use asm::{cli, end_app, out8, sti};
 use console::{console_task, Console, CONSOLE_BACKSPACE, CONSOLE_ENTER};
 use fifo::Fifo;
+use file::*;
+use fonts::HANKAKU;
 use interrupt::PORT_KEYDAT;
 use keyboard::{wait_kbc_sendready, KEYBOARD_OFFSET, KEYCMD_LED, KEYTABLE0, KEYTABLE1, LOCK_KEYS};
 use memory::{MemMan, MEMMAN_ADDR};
@@ -45,6 +47,7 @@ pub const EXIT_OFFSET: usize = 768;
 pub const EXIT_TASK_OFFSET: usize = 1024;
 pub const EXIT_ONLY_CONSOLE_OFFSET: usize = 2024;
 pub const EXIT_CONSOLE: u32 = 4;
+pub const NIHONGO_ADDR: usize = 0x0fe8;
 
 #[no_mangle]
 #[start]
@@ -138,6 +141,39 @@ pub extern "C" fn hrmain() {
     let keycmd = Fifo::new(32, None);
     keycmd.put(KEYCMD_LED as u32).unwrap();
     keycmd.put(lock_keys.as_bytes() as u32).unwrap();
+    // nihongo.fntの読み込み
+    let nihongo_addr = memman.alloc_4k(16 * 256 + 32 * 94 * 47).unwrap() as usize;
+    let fat_addr = memman.alloc_4k(4 * MAX_FAT as u32).unwrap();
+    let fat = unsafe { &mut *(fat_addr as *mut [u32; MAX_FAT]) };
+    read_fat(fat, unsafe {
+        *((ADR_DISKIMG + 0x000200) as *const [u8; (MAX_FAT * 4)])
+    });
+    let finfo = search_file(b"nihongo.fnt");
+    if let Some(finfo) = finfo {
+        finfo.load_file(nihongo_addr, fat, ADR_DISKIMG + 0x003e00)
+    } else {
+        for i in 0..(16 * 256) {
+            let font_index = i % 256;
+            let byte_index = i - font_index;
+            let byte_as_bools = HANKAKU[font_index][byte_index];
+            let mut byte = 0;
+            for bi in 0..8 {
+                if byte_as_bools[bi] {
+                    byte += 1 << (8 - bi)
+                }
+            }
+            let ptr = unsafe { &mut *((nihongo_addr + i) as *mut u8) };
+            *ptr = byte as u8;
+        }
+        for i in (16 * 256)..(16 * 256 + 32 * 94 * 47) {
+            let ptr = unsafe { &mut *((nihongo_addr + i) as *mut u8) };
+            *ptr = 0xff;
+        }
+    }
+    let nihongo_ptr = unsafe { &mut *((NIHONGO_ADDR) as *mut usize) };
+    *nihongo_ptr = nihongo_addr;
+    memman.free_4k(fat_addr, 4 * MAX_FAT as u32).unwrap();
+
     // ウィンドウの移動
     let mut moving = false;
     let mut mouse_move_x = 0;

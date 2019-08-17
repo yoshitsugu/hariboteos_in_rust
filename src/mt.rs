@@ -57,6 +57,7 @@ pub struct Task {
     pub file_handler_addr: usize,
     pub fat_addr: usize,
     pub cmdline_addr: usize,
+    pub lang_mode: LangMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +65,23 @@ pub enum TaskFlag {
     AVAILABLE,
     USED,
     RUNNING,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum LangMode {
+    En = 0,
+    JpJis = 1,
+    JpEuc = 2,
+}
+
+pub fn to_lang_mode(mode: u8) -> LangMode {
+    use LangMode::*;
+    match mode {
+        1 => JpJis,
+        2 => JpEuc,
+        _ => En,
+    }
 }
 
 impl Task {
@@ -85,6 +103,7 @@ impl Task {
             file_handler_addr: 0,
             fat_addr: 0,
             cmdline_addr: 0,
+            lang_mode: LangMode::En,
         }
     }
 }

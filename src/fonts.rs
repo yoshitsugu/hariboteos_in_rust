@@ -1,9 +1,9 @@
-pub const FONT_WIDTH: usize = 8;
-pub const FONT_HEIGHT: usize = 16;
+pub const HANKAKU_WIDTH: usize = 8;
+pub const HANKAKU_HEIGHT: usize = 16;
 
-type Font = [[bool; FONT_WIDTH]; FONT_HEIGHT];
+type Font = [[bool; HANKAKU_WIDTH]; HANKAKU_HEIGHT];
 
-pub const FONTS: [Font; 255] = [
+pub const HANKAKU: [Font; 255] = [
     [
         [false, false, false, false, false, false, false, false],
         [false, false, false, false, false, false, false, false],

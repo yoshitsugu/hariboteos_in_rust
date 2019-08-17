@@ -1,5 +1,5 @@
 [package]
-name = "catipl"
+name = "iroha"
 version = "0.1.0"
 authors = ["yoshitsugu <yoshitsugu@users.noreply.github.com>"]
 edition = "2018"
@@ -17,5 +17,5 @@ lto = true
 panic = "abort"
 
 [lib]
-name = "catipl"
+name = "iroha"
 crate-type = ["staticlib"]

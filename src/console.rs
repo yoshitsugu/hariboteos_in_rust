@@ -6,13 +6,15 @@ use crate::fifo::Fifo;
 use crate::file::*;
 use crate::keyboard::KEYBOARD_OFFSET;
 use crate::memory::{MemMan, MEMMAN_ADDR};
-use crate::mt::{TaskManager, TASK_MANAGER_ADDR};
+use crate::mt::{to_lang_mode, LangMode, TaskManager, TASK_MANAGER_ADDR};
 use crate::sheet::{SheetFlag, SheetManager, MAX_SHEETS};
 use crate::timer::TIMER_MANAGER;
-use crate::vga::{boxfill, draw_line, make_window, to_color, Color, SCREEN_HEIGHT, SCREEN_WIDTH};
+use crate::vga::{
+    boxfill, draw_line, make_window, print_char, to_color, Color, SCREEN_HEIGHT, SCREEN_WIDTH,
+};
 use crate::{
     open_console, open_console_task, write_with_bg, EXIT_CONSOLE, EXIT_OFFSET,
-    EXIT_ONLY_CONSOLE_OFFSET, EXIT_TASK_OFFSET, SHEET_MANAGER_ADDR, TASK_A_FIFO_ADDR,
+    EXIT_ONLY_CONSOLE_OFFSET, EXIT_TASK_OFFSET, NIHONGO_ADDR, SHEET_MANAGER_ADDR, TASK_A_FIFO_ADDR,
 };
 
 pub const CONSOLE_CURSOR_ON: u32 = 2;
@@ -285,13 +287,15 @@ pub extern "C" fn hrb_api(
         let fat = unsafe { *(task.fat_addr as *const [u32; MAX_FAT]) };
         if let Some(fhandler) = fhandler {
             let finfo = search_file(&filename[0..i]);
+            let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut usize) };
             if let Some(finfo) = finfo {
-                let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut usize) };
                 *reg_eax = fhandler as *const FileHandler as usize;
                 fhandler.buf_addr = memman.alloc_4k(finfo.size).unwrap() as usize;
                 fhandler.size = finfo.size as i32;
                 fhandler.pos = 0;
                 finfo.load_file(fhandler.buf_addr, &fat, ADR_DISKIMG + 0x003e00);
+            } else {
+                *reg_eax = 0;
             }
         }
     } else if edx == 22 {
@@ -391,18 +395,29 @@ impl Console {
             let sheet_manager = unsafe { &mut *(self.sheet_manager_addr as *mut SheetManager) };
 
             let sheet = sheet_manager.sheets_data[self.sheet_index];
-            write_with_bg!(
-                sheet_manager,
-                self.sheet_index,
-                sheet.width,
-                sheet.height,
+            boxfill(
+                sheet.buf_addr,
+                sheet.width as isize,
+                Color::Black,
                 self.cursor_x,
                 self.cursor_y,
+                self.cursor_x + 8,
+                self.cursor_y + 15,
+            );
+            print_char(
+                sheet.buf_addr,
+                sheet.width as usize,
+                char_num,
                 Color::White,
-                Color::Black,
-                1,
-                "{}",
-                char_num as char,
+                self.cursor_x,
+                self.cursor_y,
+            );
+            sheet_manager.refresh(
+                self.sheet_index,
+                (self.cursor_x - 8) as i32,
+                self.cursor_y as i32,
+                (self.cursor_x + 8) as i32,
+                (self.cursor_y + 16) as i32,
             );
         }
         if move_cursor {
@@ -476,6 +491,8 @@ impl Console {
             self.cmd_start(cmdline_strs, memtotal as u32);
         } else if cmd_str == "ncst" {
             self.cmd_ncst(cmdline_strs, memtotal as u32);
+        } else if cmd_str == "langmode" {
+            self.cmd_langmode(cmdline_strs);
         } else if cmd_str == "exit" {
             self.cmd_exit(fat);
         } else {
@@ -626,6 +643,21 @@ impl Console {
             fifo.put(cmd[ci] as u32 + 256).unwrap();
         }
         fifo.put(10 + 256).unwrap(); // Enter
+        self.newline();
+    }
+
+    pub fn cmd_langmode<'a>(&mut self, cmdline_strs: impl Iterator<Item = &'a [u8]>) {
+        let mut cmd = cmdline_strs.skip_while(|strs| strs.len() == 0);
+        let cmd = cmd.next();
+        if cmd.is_none() {
+            self.display_error("Command Not Found");
+            return;
+        }
+        let langmode = cmd.unwrap()[0] - b'0';
+        let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+        let task_index = task_manager.now_index();
+        let mut task = &mut task_manager.tasks_data[task_index];
+        task.lang_mode = to_lang_mode(langmode);
         self.newline();
     }
 
@@ -825,6 +857,7 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
     let mut console = Console::new(sheet_index, sheet_manager_addr);
     let fifo_addr: usize;
     let fhandlers: [FileHandler; MAX_FILE_HANDLER] = [FileHandler::new(); MAX_FILE_HANDLER];
+    let nihongo_font = unsafe { *((NIHONGO_ADDR as usize + 4096 * 4) as *const u8) };
     {
         let mut task = &mut task_manager.tasks_data[task_index];
         task.console_addr = &console as *const Console as usize;
@@ -832,6 +865,9 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
         task.file_handler_addr = fhandlers.as_ptr() as usize;
         task.fat_addr = fat_addr as usize;
         task.cmdline_addr = cmdline.as_ptr() as usize;
+        if nihongo_font != 0xff {
+            task.lang_mode = LangMode::JpJis
+        }
     }
     let fifo = unsafe { &*(fifo_addr as *const Fifo) };
 
@@ -943,74 +979,6 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
             }
         }
     }
-}
-
-fn search_file(filename: &[u8]) -> Option<FileInfo> {
-    let mut target_finfo = None;
-    // 拡張子の前後でわける
-    let mut filename = filename.split(|c| *c == b'.');
-    let basename = filename.next();
-    let extname = filename.next();
-    let mut b = [b' '; 8];
-    let mut e = [b' '; 3];
-    if let Some(basename) = basename {
-        for fi in 0..b.len() {
-            if basename.len() <= fi {
-                break;
-            }
-            if b'a' <= basename[fi] && basename[fi] <= b'z' {
-                // 小文字は大文字で正規化しておく
-                b[fi] = basename[fi] - 0x20;
-            } else {
-                b[fi] = basename[fi];
-            }
-        }
-    } else {
-        return None;
-    }
-    if let Some(extname) = extname {
-        for fi in 0..e.len() {
-            if extname.len() <= fi {
-                break;
-            }
-            if b'a' <= extname[fi] && extname[fi] <= b'z' {
-                e[fi] = extname[fi] - 0x20;
-            } else {
-                e[fi] = extname[fi];
-            }
-        }
-    }
-    for findex in 0..MAX_FILE_INFO {
-        let finfo = unsafe {
-            *((ADR_DISKIMG + ADR_FILE_OFFSET + findex * core::mem::size_of::<FileInfo>())
-                as *const FileInfo)
-        };
-        if finfo.name[0] == 0x00 {
-            break;
-        }
-        if finfo.name[0] != 0xe5 {
-            if (finfo.ftype & 0x18) == 0 {
-                let mut filename_equal = true;
-                for y in 0..finfo.name.len() {
-                    if finfo.name[y] != b[y] {
-                        filename_equal = false;
-                        break;
-                    }
-                }
-                for y in 0..finfo.ext.len() {
-                    if finfo.ext[y] != e[y] {
-                        filename_equal = false;
-                        break;
-                    }
-                }
-                if filename_equal {
-                    target_finfo = Some(finfo);
-                    break;
-                }
-            }
-        }
-    }
-    target_finfo
 }
 
 pub extern "C" fn inthandler0c(esp: *const usize) -> usize {
