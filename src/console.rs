@@ -450,7 +450,7 @@ impl Console {
                     } else if 0x80 <= chr && chr <= 0x9e {
                         t = chr as usize - 0x80 + 63;
                     } else {
-                        t = chr as usize - 0x9f;
+                        t = if chr >= 0x9f { chr as usize - 0x9f } else { 0 };
                         k += 1;
                     }
                     {
@@ -482,6 +482,59 @@ impl Console {
                         font_r,
                     );
                 }
+            } else if task.lang_mode == LangMode::JpEuc {
+                let nihongo_addr = unsafe { *(NIHONGO_ADDR as *const usize) };
+                if task.lang_byte1 == 0 {
+                    if (0x81 <= chr && chr <= 0xfe) {
+                        let mut task = &mut task_manager.tasks_data[task_index];
+                        task.lang_byte1 = chr;
+                    } else {
+                        let font = unsafe {
+                            *((nihongo_addr + chr as usize * HANKAKU_HEIGHT)
+                                as *const [u8; HANKAKU_HEIGHT])
+                        };
+                        print_nihongo_char(
+                            sheet.buf_addr,
+                            sheet.width as usize,
+                            Color::White,
+                            self.cursor_x,
+                            self.cursor_y,
+                            font,
+                        );
+                    }
+                } else {
+                    let k: usize = task.lang_byte1 as usize - 0xa1;
+                    let t: usize = chr as usize - 0xa1;
+                    {
+                        let mut task = &mut task_manager.tasks_data[task_index];
+                        task.lang_byte1 = 0;
+                    }
+                    let font_l = unsafe {
+                        *((nihongo_addr + 256 * HANKAKU_HEIGHT + (k * 94 + t) * 32)
+                            as *const [u8; HANKAKU_HEIGHT])
+                    };
+                    print_nihongo_char(
+                        sheet.buf_addr,
+                        sheet.width as usize,
+                        Color::White,
+                        self.cursor_x - 8,
+                        self.cursor_y,
+                        font_l,
+                    );
+                    let font_r = unsafe {
+                        *((nihongo_addr + 256 * HANKAKU_HEIGHT + (k * 94 + t) * 32 + 16)
+                            as *const [u8; HANKAKU_HEIGHT])
+                    };
+                    print_nihongo_char(
+                        sheet.buf_addr,
+                        sheet.width as usize,
+                        Color::White,
+                        self.cursor_x,
+                        self.cursor_y,
+                        font_r,
+                    );
+                }
+
             }
 
             sheet_manager.refresh(

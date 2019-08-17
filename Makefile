@@ -23,7 +23,7 @@ $(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys fonts/nihongo.fnt $(OU
 	mcopy $(OUTPUT_DIR)/prim.hrb -i $@ ::
 	mcopy $(OUTPUT_DIR)/iroha.hrb -i $@ ::
 	mcopy $(OUTPUT_DIR)/cat.hrb -i $@ ::
-	mcopy texts/ipl20.nas -i $@ ::
+	mcopy texts/euc.txt -i $@ ::
 	mcopy fonts/nihongo.fnt -i $@ ::
 
 asm :
