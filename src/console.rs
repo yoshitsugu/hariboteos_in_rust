@@ -357,6 +357,9 @@ pub extern "C" fn hrb_api(
         }
         let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut usize) };
         *reg_eax = i;
+    } else if edx == 27 {
+        let reg_eax = unsafe { &mut *((reg + 7 * 4) as *mut LangMode) };
+        *reg_eax = task.lang_mode;
     }
     0
 }
@@ -485,7 +488,7 @@ impl Console {
             } else if task.lang_mode == LangMode::JpEuc {
                 let nihongo_addr = unsafe { *(NIHONGO_ADDR as *const usize) };
                 if task.lang_byte1 == 0 {
-                    if (0x81 <= chr && chr <= 0xfe) {
+                    if 0x81 <= chr && chr <= 0xfe {
                         let mut task = &mut task_manager.tasks_data[task_index];
                         task.lang_byte1 = chr;
                     } else {
@@ -534,7 +537,6 @@ impl Console {
                         font_r,
                     );
                 }
-
             }
 
             sheet_manager.refresh(

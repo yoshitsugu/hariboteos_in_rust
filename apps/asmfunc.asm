@@ -25,6 +25,7 @@
 		GLOBAL	_api_fsize
 		GLOBAL	_api_fread
 		GLOBAL	_api_cmdline
+		GLOBAL	_api_getlang
 
 [SECTION .text]
 
@@ -280,4 +281,9 @@ _api_cmdline:		; int api_cmdline(char *buf, int maxsize);
 		MOV		EBX,[ESP+8]			; buf
 		INT		0x40
 		POP		EBX
+		RET
+
+_api_getlang:		; int api_getlang(void);
+		MOV		EDX,27
+		INT		0x40
 		RET

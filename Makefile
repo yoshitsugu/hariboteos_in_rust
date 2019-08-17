@@ -13,7 +13,7 @@ $(OUTPUT_DIR)/%.bin: $(ASM_DIR)/%.asm Makefile $(OUTPUT_DIR_KEEP)
 $(OUTPUT_DIR)/haribote.sys : $(OUTPUT_DIR)/asmhead.bin $(OUTPUT_DIR)/kernel.bin
 	cat $^ > $@
 
-$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys fonts/nihongo.fnt $(OUTPUT_DIR)/prim.hrb $(OUTPUT_DIR)/lines.hrb $(OUTPUT_DIR)/timer.hrb $(OUTPUT_DIR)/beepdown.hrb $(OUTPUT_DIR)/color.hrb $(OUTPUT_DIR)/iroha.hrb $(OUTPUT_DIR)/cat.hrb Makefile
+$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys fonts/nihongo.fnt $(OUTPUT_DIR)/prim.hrb $(OUTPUT_DIR)/lines.hrb $(OUTPUT_DIR)/timer.hrb $(OUTPUT_DIR)/beepdown.hrb $(OUTPUT_DIR)/color.hrb $(OUTPUT_DIR)/iroha.hrb $(OUTPUT_DIR)/cat.hrb $(OUTPUT_DIR)/chklang.hrb Makefile
 	mformat -f 1440 -C -B $< -i $@ ::
 	mcopy $(OUTPUT_DIR)/haribote.sys -i $@ ::
 	mcopy $(OUTPUT_DIR)/lines.hrb -i $@ ::
@@ -23,6 +23,7 @@ $(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys fonts/nihongo.fnt $(OU
 	mcopy $(OUTPUT_DIR)/prim.hrb -i $@ ::
 	mcopy $(OUTPUT_DIR)/iroha.hrb -i $@ ::
 	mcopy $(OUTPUT_DIR)/cat.hrb -i $@ ::
+	mcopy $(OUTPUT_DIR)/chklang.hrb -i $@ ::
 	mcopy texts/euc.txt -i $@ ::
 	mcopy fonts/nihongo.fnt -i $@ ::
 
