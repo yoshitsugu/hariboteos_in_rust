@@ -192,6 +192,16 @@ pub extern "C" fn hrb_api(
         let sheet = sheet_manager.sheets_data[sheet_index];
         draw_line(sheet.buf_addr, sheet.width, eax, ecx, esi, edi, ebp);
         if refresh {
+            let mut eax = eax;
+            let mut esi = esi;
+            if eax > esi {
+                core::mem::swap(&mut eax, &mut esi);
+            }
+            let mut ecx = ecx;
+            let mut edi = edi;
+            if ecx > edi {
+                core::mem::swap(&mut ecx, &mut edi);
+            }
             sheet_manager.refresh(sheet_index, eax, ecx, esi + 1, edi + 1);
         }
     } else if edx == 14 {
