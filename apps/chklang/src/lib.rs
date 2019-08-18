@@ -36,7 +36,7 @@ pub extern "C" fn hrmain() {
         },
         _ => unsafe {
             // Nothing to do
-        }
+        },
     }
     end();
 }
