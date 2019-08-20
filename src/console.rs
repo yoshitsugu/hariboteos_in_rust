@@ -1070,7 +1070,7 @@ pub extern "C" fn console_task(sheet_index: usize, memtotal: usize) {
                         if console.sheet_index == 0 {
                             console.cmd_exit(fat);
                         }
-                        cmdline = [b' '; MAX_CMD];
+                        cmdline = [0; MAX_CMD];
                         // プロンプト表示
                         if sheet_index != 0 {
                             console.show_prompt();
