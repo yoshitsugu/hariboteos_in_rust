@@ -36,7 +36,7 @@ pub extern "C" fn hrmain() {
         _api_boxfilwin(win, 50, 30, 99, 49, 14);
     }
     loop {
-        if (unsafe { _api_getkey(1) } == 0x0a) {
+        if unsafe { _api_getkey(1) } == 0x0a {
             break; // Enterならbreak
         }
     }
