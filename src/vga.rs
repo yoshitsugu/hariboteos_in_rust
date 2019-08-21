@@ -4,6 +4,9 @@ use lazy_static::lazy_static;
 
 use crate::asm;
 use crate::fonts::{HANKAKU, HANKAKU_HEIGHT, HANKAKU_WIDTH};
+use crate::mt::{LangMode, TaskManager, TASK_MANAGER_ADDR};
+use crate::sheet::SheetManager;
+use crate::NIHONGO_ADDR;
 
 const COLOR_PALETTE: [[u8; 3]; 16] = [
     [0x00, 0x00, 0x00], /*  0:黒 */
@@ -166,6 +169,158 @@ pub fn boxfill(buf: usize, xsize: isize, color: Color, x0: isize, y0: isize, x1:
             let ptr = unsafe { &mut *((buf as isize + y * xsize + x) as *mut u8) };
             *ptr = color as u8;
         }
+    }
+}
+
+pub fn print_char_wrapper(
+    sheet_manager_addr: usize,
+    sheet_index: usize,
+    chr: u8,
+    fg: Color,
+    cursor_x: isize,
+    cursor_y: isize,
+) {
+    if sheet_index != 0 {
+        let sheet_manager = unsafe { &mut *(sheet_manager_addr as *mut SheetManager) };
+        let sheet = sheet_manager.sheets_data[sheet_index];
+        let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
+        let task_index = task_manager.now_index();
+        let task = &task_manager.tasks_data[task_index];
+        if task.lang_mode == LangMode::En {
+            print_char(
+                sheet.buf_addr,
+                sheet.width as usize,
+                chr,
+                fg,
+                cursor_x,
+                cursor_y,
+            );
+        } else if task.lang_mode == LangMode::JpJis {
+            let nihongo_addr = unsafe { *(NIHONGO_ADDR as *const usize) };
+            if task.lang_byte1 == 0 {
+                if (0x81 <= chr && chr <= 0x9f) || (0xe0 <= chr && chr <= 0xfc) {
+                    let mut task = &mut task_manager.tasks_data[task_index];
+                    task.lang_byte1 = chr;
+                } else {
+                    let font = unsafe {
+                        *((nihongo_addr + chr as usize * HANKAKU_HEIGHT)
+                            as *const [u8; HANKAKU_HEIGHT])
+                    };
+                    print_nihongo_char(
+                        sheet.buf_addr,
+                        sheet.width as usize,
+                        fg,
+                        cursor_x,
+                        cursor_y,
+                        font,
+                    );
+                }
+            } else {
+                let mut k: usize;
+                let t: usize;
+                if 0x81 <= task.lang_byte1 && task.lang_byte1 <= 0x9f {
+                    k = (task.lang_byte1 as usize - 0x81) * 2;
+                } else {
+                    k = (task.lang_byte1 as usize - 0xe0) * 2 + 62;
+                }
+                if 0x40 <= chr && chr <= 0x7e {
+                    t = chr as usize - 0x40;
+                } else if 0x80 <= chr && chr <= 0x9e {
+                    t = chr as usize - 0x80 + 63;
+                } else {
+                    t = if chr >= 0x9f { chr as usize - 0x9f } else { 0 };
+                    k += 1;
+                }
+                {
+                    let mut task = &mut task_manager.tasks_data[task_index];
+                    task.lang_byte1 = 0;
+                }
+                let font_l = unsafe {
+                    *((nihongo_addr + 256 * HANKAKU_HEIGHT + (k * 94 + t) * 32)
+                        as *const [u8; HANKAKU_HEIGHT])
+                };
+                print_nihongo_char(
+                    sheet.buf_addr,
+                    sheet.width as usize,
+                    fg,
+                    cursor_x - 8,
+                    cursor_y,
+                    font_l,
+                );
+                let font_r = unsafe {
+                    *((nihongo_addr + 256 * HANKAKU_HEIGHT + (k * 94 + t) * 32 + 16)
+                        as *const [u8; HANKAKU_HEIGHT])
+                };
+                print_nihongo_char(
+                    sheet.buf_addr,
+                    sheet.width as usize,
+                    fg,
+                    cursor_x,
+                    cursor_y,
+                    font_r,
+                );
+            }
+        } else if task.lang_mode == LangMode::JpEuc {
+            let nihongo_addr = unsafe { *(NIHONGO_ADDR as *const usize) };
+            if task.lang_byte1 == 0 {
+                if 0x81 <= chr && chr <= 0xfe {
+                    let mut task = &mut task_manager.tasks_data[task_index];
+                    task.lang_byte1 = chr;
+                } else {
+                    let font = unsafe {
+                        *((nihongo_addr + chr as usize * HANKAKU_HEIGHT)
+                            as *const [u8; HANKAKU_HEIGHT])
+                    };
+                    print_nihongo_char(
+                        sheet.buf_addr,
+                        sheet.width as usize,
+                        fg,
+                        cursor_x,
+                        cursor_y,
+                        font,
+                    );
+                }
+            } else {
+                let k: usize = task.lang_byte1 as usize - 0xa1;
+                let t: usize = chr as usize - 0xa1;
+                {
+                    let mut task = &mut task_manager.tasks_data[task_index];
+                    task.lang_byte1 = 0;
+                }
+                let font_l = unsafe {
+                    *((nihongo_addr + 256 * HANKAKU_HEIGHT + (k * 94 + t) * 32)
+                        as *const [u8; HANKAKU_HEIGHT])
+                };
+                print_nihongo_char(
+                    sheet.buf_addr,
+                    sheet.width as usize,
+                    fg,
+                    cursor_x - 8,
+                    cursor_y,
+                    font_l,
+                );
+                let font_r = unsafe {
+                    *((nihongo_addr + 256 * HANKAKU_HEIGHT + (k * 94 + t) * 32 + 16)
+                        as *const [u8; HANKAKU_HEIGHT])
+                };
+                print_nihongo_char(
+                    sheet.buf_addr,
+                    sheet.width as usize,
+                    fg,
+                    cursor_x,
+                    cursor_y,
+                    font_r,
+                );
+            }
+        }
+
+        sheet_manager.refresh(
+            sheet_index,
+            (cursor_x - 8) as i32,
+            cursor_y as i32,
+            (cursor_x + 8) as i32,
+            (cursor_y + 16) as i32,
+        );
     }
 }
 

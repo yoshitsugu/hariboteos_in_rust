@@ -4,15 +4,14 @@ use crate::asm::{cli, in8, out8, sti};
 use crate::descriptor_table::{SegmentDescriptor, AR_CODE32_ER, AR_DATA32_RW};
 use crate::fifo::Fifo;
 use crate::file::*;
-use crate::fonts::HANKAKU_HEIGHT;
 use crate::keyboard::KEYBOARD_OFFSET;
 use crate::memory::{MemMan, MEMMAN_ADDR};
 use crate::mt::{to_lang_mode, LangMode, TaskManager, TASK_MANAGER_ADDR};
 use crate::sheet::{SheetFlag, SheetManager, MAX_SHEETS};
 use crate::timer::TIMER_MANAGER;
 use crate::vga::{
-    boxfill, draw_line, make_window, print_char, print_nihongo_char, to_color, Color,
-    SCREEN_HEIGHT, SCREEN_WIDTH,
+    boxfill, draw_line, make_window, print_char_wrapper, to_color, Color, SCREEN_HEIGHT,
+    SCREEN_WIDTH,
 };
 use crate::{
     open_console, open_console_task, write_with_bg, EXIT_CONSOLE, EXIT_OFFSET,
@@ -113,19 +112,25 @@ pub extern "C" fn hrb_api(
             refresh = false;
             sheet_index -= MAX_SHEETS;
         }
-        let sheet = sheet_manager.sheets_data[sheet_index];
-        let string = unsafe { *((ebp as usize + ds_base) as *const [u8; 30]) };
-        use crate::vga::ScreenWriter;
-        use core::fmt::Write;
-        let mut writer = ScreenWriter::new(
-            Some(sheet.buf_addr),
-            to_color(eax as i8).unwrap(),
-            esi as usize,
-            edi as usize,
-            sheet.width as usize,
-            sheet.height as usize,
-        );
-        write!(writer, "{}", from_utf8(&string[0..(ecx as usize)]).unwrap()).unwrap();
+        let string_ptr = ebp as usize + ds_base;
+        let mut cursor_x = esi;
+        let mut i = 0;
+        loop {
+            let chr = unsafe { *((string_ptr + i) as *const u8) };
+            if chr == 0 {
+                break;
+            }
+            print_char_wrapper(
+                console.sheet_manager_addr,
+                sheet_index,
+                chr,
+                to_color(eax as i8).unwrap(),
+                cursor_x as isize,
+                edi as isize,
+            );
+            i += 1;
+            cursor_x += 8;
+        }
         if refresh {
             sheet_manager.refresh(sheet_index, esi, edi, esi + ecx * 8, edi + 16);
         }
@@ -406,157 +411,25 @@ impl Console {
     }
 
     pub fn put_char(&mut self, chr: u8, move_cursor: bool) {
-        if self.sheet_index != 0 {
-            let sheet_manager = unsafe { &mut *(self.sheet_manager_addr as *mut SheetManager) };
-            let sheet = sheet_manager.sheets_data[self.sheet_index];
-            let task_manager = unsafe { &mut *(TASK_MANAGER_ADDR as *mut TaskManager) };
-            let task_index = task_manager.now_index();
-            let task = &task_manager.tasks_data[task_index];
-            boxfill(
-                sheet.buf_addr,
-                sheet.width as isize,
-                Color::Black,
-                self.cursor_x,
-                self.cursor_y,
-                self.cursor_x + 8,
-                self.cursor_y + 15,
-            );
-            if task.lang_mode == LangMode::En {
-                print_char(
-                    sheet.buf_addr,
-                    sheet.width as usize,
-                    chr,
-                    Color::White,
-                    self.cursor_x,
-                    self.cursor_y,
-                );
-            } else if task.lang_mode == LangMode::JpJis {
-                let nihongo_addr = unsafe { *(NIHONGO_ADDR as *const usize) };
-                if task.lang_byte1 == 0 {
-                    if (0x81 <= chr && chr <= 0x9f) || (0xe0 <= chr && chr <= 0xfc) {
-                        let mut task = &mut task_manager.tasks_data[task_index];
-                        task.lang_byte1 = chr;
-                    } else {
-                        let font = unsafe {
-                            *((nihongo_addr + chr as usize * HANKAKU_HEIGHT)
-                                as *const [u8; HANKAKU_HEIGHT])
-                        };
-                        print_nihongo_char(
-                            sheet.buf_addr,
-                            sheet.width as usize,
-                            Color::White,
-                            self.cursor_x,
-                            self.cursor_y,
-                            font,
-                        );
-                    }
-                } else {
-                    let mut k: usize;
-                    let t: usize;
-                    if 0x81 <= task.lang_byte1 && task.lang_byte1 <= 0x9f {
-                        k = (task.lang_byte1 as usize - 0x81) * 2;
-                    } else {
-                        k = (task.lang_byte1 as usize - 0xe0) * 2 + 62;
-                    }
-                    if 0x40 <= chr && chr <= 0x7e {
-                        t = chr as usize - 0x40;
-                    } else if 0x80 <= chr && chr <= 0x9e {
-                        t = chr as usize - 0x80 + 63;
-                    } else {
-                        t = if chr >= 0x9f { chr as usize - 0x9f } else { 0 };
-                        k += 1;
-                    }
-                    {
-                        let mut task = &mut task_manager.tasks_data[task_index];
-                        task.lang_byte1 = 0;
-                    }
-                    let font_l = unsafe {
-                        *((nihongo_addr + 256 * HANKAKU_HEIGHT + (k * 94 + t) * 32)
-                            as *const [u8; HANKAKU_HEIGHT])
-                    };
-                    print_nihongo_char(
-                        sheet.buf_addr,
-                        sheet.width as usize,
-                        Color::White,
-                        self.cursor_x - 8,
-                        self.cursor_y,
-                        font_l,
-                    );
-                    let font_r = unsafe {
-                        *((nihongo_addr + 256 * HANKAKU_HEIGHT + (k * 94 + t) * 32 + 16)
-                            as *const [u8; HANKAKU_HEIGHT])
-                    };
-                    print_nihongo_char(
-                        sheet.buf_addr,
-                        sheet.width as usize,
-                        Color::White,
-                        self.cursor_x,
-                        self.cursor_y,
-                        font_r,
-                    );
-                }
-            } else if task.lang_mode == LangMode::JpEuc {
-                let nihongo_addr = unsafe { *(NIHONGO_ADDR as *const usize) };
-                if task.lang_byte1 == 0 {
-                    if 0x81 <= chr && chr <= 0xfe {
-                        let mut task = &mut task_manager.tasks_data[task_index];
-                        task.lang_byte1 = chr;
-                    } else {
-                        let font = unsafe {
-                            *((nihongo_addr + chr as usize * HANKAKU_HEIGHT)
-                                as *const [u8; HANKAKU_HEIGHT])
-                        };
-                        print_nihongo_char(
-                            sheet.buf_addr,
-                            sheet.width as usize,
-                            Color::White,
-                            self.cursor_x,
-                            self.cursor_y,
-                            font,
-                        );
-                    }
-                } else {
-                    let k: usize = task.lang_byte1 as usize - 0xa1;
-                    let t: usize = chr as usize - 0xa1;
-                    {
-                        let mut task = &mut task_manager.tasks_data[task_index];
-                        task.lang_byte1 = 0;
-                    }
-                    let font_l = unsafe {
-                        *((nihongo_addr + 256 * HANKAKU_HEIGHT + (k * 94 + t) * 32)
-                            as *const [u8; HANKAKU_HEIGHT])
-                    };
-                    print_nihongo_char(
-                        sheet.buf_addr,
-                        sheet.width as usize,
-                        Color::White,
-                        self.cursor_x - 8,
-                        self.cursor_y,
-                        font_l,
-                    );
-                    let font_r = unsafe {
-                        *((nihongo_addr + 256 * HANKAKU_HEIGHT + (k * 94 + t) * 32 + 16)
-                            as *const [u8; HANKAKU_HEIGHT])
-                    };
-                    print_nihongo_char(
-                        sheet.buf_addr,
-                        sheet.width as usize,
-                        Color::White,
-                        self.cursor_x,
-                        self.cursor_y,
-                        font_r,
-                    );
-                }
-            }
-
-            sheet_manager.refresh(
-                self.sheet_index,
-                (self.cursor_x - 8) as i32,
-                self.cursor_y as i32,
-                (self.cursor_x + 8) as i32,
-                (self.cursor_y + 16) as i32,
-            );
-        }
+        let sheet_manager = unsafe { &mut *(self.sheet_manager_addr as *mut SheetManager) };
+        let sheet = sheet_manager.sheets_data[self.sheet_index];
+        boxfill(
+            sheet.buf_addr,
+            sheet.width as isize,
+            Color::Black,
+            self.cursor_x,
+            self.cursor_y,
+            self.cursor_x + 8,
+            self.cursor_y + 15,
+        );
+        print_char_wrapper(
+            self.sheet_manager_addr,
+            self.sheet_index,
+            chr,
+            Color::White,
+            self.cursor_x,
+            self.cursor_y,
+        );
         if move_cursor {
             self.cursor_x += 8;
         }
