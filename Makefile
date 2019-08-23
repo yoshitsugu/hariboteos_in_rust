@@ -13,7 +13,7 @@ $(OUTPUT_DIR)/%.bin: $(ASM_DIR)/%.asm Makefile $(OUTPUT_DIR_KEEP)
 $(OUTPUT_DIR)/haribote.sys : $(OUTPUT_DIR)/asmhead.bin $(OUTPUT_DIR)/kernel.bin
 	cat $^ > $@
 
-$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys fonts/nihongo.fnt $(OUTPUT_DIR)/prim.hrb $(OUTPUT_DIR)/lines.hrb $(OUTPUT_DIR)/timer.hrb $(OUTPUT_DIR)/beepdown.hrb $(OUTPUT_DIR)/color.hrb $(OUTPUT_DIR)/iroha.hrb $(OUTPUT_DIR)/cat.hrb $(OUTPUT_DIR)/chklang.hrb $(OUTPUT_DIR)/notrec.hrb $(OUTPUT_DIR)/bball.hrb $(OUTPUT_DIR)/invader.hrb $(OUTPUT_DIR)/calc.hrb $(OUTPUT_DIR)/tview.hrb Makefile
+$(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys fonts/nihongo.fnt $(OUTPUT_DIR)/prim.hrb $(OUTPUT_DIR)/lines.hrb $(OUTPUT_DIR)/timer.hrb $(OUTPUT_DIR)/beepdown.hrb $(OUTPUT_DIR)/color.hrb $(OUTPUT_DIR)/iroha.hrb $(OUTPUT_DIR)/cat.hrb $(OUTPUT_DIR)/chklang.hrb $(OUTPUT_DIR)/notrec.hrb $(OUTPUT_DIR)/bball.hrb $(OUTPUT_DIR)/invader.hrb $(OUTPUT_DIR)/calc.hrb $(OUTPUT_DIR)/tview.hrb $(OUTPUT_DIR)/gview.hrb Makefile
 	mformat -f 1440 -C -B $< -i $@ ::
 	mcopy $(OUTPUT_DIR)/haribote.sys -i $@ ::
 	mcopy $(OUTPUT_DIR)/lines.hrb -i $@ ::
@@ -29,9 +29,10 @@ $(IMG) : $(OUTPUT_DIR)/ipl.bin $(OUTPUT_DIR)/haribote.sys fonts/nihongo.fnt $(OU
 	mcopy $(OUTPUT_DIR)/invader.hrb -i $@ ::
 	mcopy $(OUTPUT_DIR)/calc.hrb -i $@ ::
 	mcopy $(OUTPUT_DIR)/tview.hrb -i $@ ::
-	mcopy texts/euc.txt -i $@ ::
-	mcopy texts/ascii.txt -i $@ ::
-	mcopy texts/ipl20.nas -i $@ ::
+	mcopy $(OUTPUT_DIR)/gview.hrb -i $@ ::
+	mcopy texts/sjis.txt -i $@ ::
+	mcopy images/goat.bmp -i $@ ::
+	mcopy images/fall.jpg -i $@ ::
 	mcopy fonts/nihongo.fnt -i $@ ::
 
 asm :
@@ -78,3 +79,14 @@ $(OUTPUT_DIR)/crack7.hrb: $(ASM_DIR)/crack7.asm $(OUTPUT_DIR)/app_asmfunc.o $(OU
 
 $(OUTPUT_DIR)/%.hrb: $(OUTPUT_DIR)/%.a $(OUTPUT_DIR)/app_asmfunc.o $(OUTPUT_DIR_KEEP)
 	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tkernel.ld $< $(OUTPUT_DIR)/app_asmfunc.o -o $@
+
+$(OUTPUT_DIR)/gview/jpeg.o: apps/gview/jpeg.c
+	mkdir -p $(OUTPUT_DIR)/gview
+	gcc -c $< -O2 --std=c99 -m32 -march=i486 -fno-stack-protector -fno-pie -o $@
+
+$(OUTPUT_DIR)/gview/bmp.o: apps/gview/bmp.nasm
+	mkdir -p $(OUTPUT_DIR)/gview
+	nasm -f elf $< -o $@
+
+$(OUTPUT_DIR)/gview.hrb: $(OUTPUT_DIR)/gview.a $(OUTPUT_DIR)/app_asmfunc.o $(OUTPUT_DIR)/gview/bmp.o $(OUTPUT_DIR)/gview/jpeg.o $(OUTPUT_DIR_KEEP)
+	ld -v -nostdlib -m elf_i386 -Tdata=0x00310000 -Tapps/gview/kernel.ld $< $(OUTPUT_DIR)/app_asmfunc.o $(OUTPUT_DIR)/gview/jpeg.o $(OUTPUT_DIR)/gview/bmp.o -o $@
